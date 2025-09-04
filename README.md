@@ -24,17 +24,31 @@
 ## 项目结构
 
 ```
-├── main.py              # FastAPI主应用
-├── utils.py             # 核心工具函数（语音识别、摘要生成）
-├── frontend/            # 前端文件
+├── backend/             # 后端代码目录
+│   ├── __init__.py      # Python包初始化文件
+│   ├── main.py          # FastAPI主应用
+│   ├── utils.py         # 核心工具函数（语音识别、摘要生成）
+│   └── requirements.txt # Python依赖
+├── static/              # 静态资源目录
+│   ├── css/
+│   │   └── styles.css   # 样式表
+│   └── js/
+│       └── script.js    # JavaScript逻辑
+├── frontend/            # 前端文件（兼容保留）
 │   ├── index.html       # 前端主页
 │   ├── script.js        # JavaScript逻辑
 │   └── styles.css       # 样式表
-├── requirements.txt     # Python依赖
+├── logs/                # 日志存储目录
+├── index.html           # 应用主页
+├── main.py              # 主应用入口（兼容保留）
+├── utils.py             # 工具函数（兼容保留）
+├── requirements.txt     # Python依赖（兼容保留）
 ├── Dockerfile           # Docker镜像构建文件
 ├── docker-compose.yml   # Docker Compose编排文件
 ├── .env.example         # 环境变量配置文件示例
 ├── DEPLOYMENT_GUIDE.md  # 详细的部署指南
+├── API_DOCUMENT.md      # API接口文档
+├── CONTRIBUTING.md      # 贡献指南
 └── README.md            # 本文档
 ```
 

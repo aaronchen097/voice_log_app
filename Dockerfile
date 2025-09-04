@@ -6,14 +6,16 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 # Install dependencies
-COPY requirements.txt ./
-RUN pip install --no-cache-dir -r requirements.txt
+COPY backend/requirements.txt ./
+RUN pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple -r requirements.txt
 
 # Copy application source code
-COPY main.py ./
-COPY utils.py ./
+COPY backend/main.py ./
+COPY backend/utils.py ./
 
-# Copy frontend files
+# Copy static files
+COPY static ./static
+# Copy frontend files (for compatibility)
 COPY frontend ./frontend
 
 EXPOSE 31101

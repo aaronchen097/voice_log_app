@@ -1,0 +1,366 @@
+document.addEventListener("DOMContentLoaded", () => {
+    // 原有元素
+    const recordButton = document.getElementById("recordButton");
+    const statusDiv = document.getElementById("status");
+    const resultDiv = document.getElementById("result");
+    const summaryDiv = document.getElementById("summary");
+    const queryInput = document.getElementById("queryInput");
+    const queryButton = document.getElementById("queryButton");
+    const queryResultDiv = document.getElementById("queryResult");
+    
+    // 新的文件上传元素
+    const fileInput = document.getElementById("file-input");
+    const uploadArea = document.getElementById("upload-area");
+    const progressSection = document.getElementById("progress-section");
+    const progressFill = document.getElementById("progress-fill");
+    const progressText = document.getElementById("progress-text");
+    const statusDetails = document.getElementById("status-details");
+    const resultSection = document.getElementById("result-section");
+    const summarySection = document.getElementById("summary-section");
+    const transcriptionContent = document.getElementById("transcription-content");
+    const summaryResult = document.getElementById("summary-result");
+    const generateSummaryBtn = document.getElementById("generate-summary-btn");
+    const summaryType = document.getElementById("summary-type");
+    const tabBtns = document.querySelectorAll('.tab-btn');
+    const tabContents = document.querySelectorAll('.tab-content');
+
+    let mediaRecorder;
+    let audioChunks = [];
+    let isRecording = false;
+    let currentTranscription = '';
+
+    // 标签页切换功能
+    tabBtns.forEach(btn => {
+        btn.addEventListener('click', () => {
+            const tabId = btn.dataset.tab;
+            
+            // 更新标签按钮状态
+            tabBtns.forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            
+            // 显示对应内容
+            tabContents.forEach(content => {
+                if (content.id === `${tabId}-tab`) {
+                    content.classList.remove('hidden');
+                } else {
+                    content.classList.add('hidden');
+                }
+            });
+        });
+    });
+
+    // 文件上传功能
+    if (fileInput) {
+        fileInput.addEventListener('change', handleFileSelect);
+    }
+    
+    if (uploadArea) {
+        // 拖拽上传
+        uploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadArea.classList.add('drag-over');
+        });
+        
+        uploadArea.addEventListener('dragleave', () => {
+            uploadArea.classList.remove('drag-over');
+        });
+        
+        uploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadArea.classList.remove('drag-over');
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                handleFileUpload(files[0]);
+            }
+        });
+    }
+
+    // 处理文件选择
+    function handleFileSelect(event) {
+        const file = event.target.files[0];
+        if (file) {
+            handleFileUpload(file);
+        }
+    }
+
+    // 处理文件上传
+    async function handleFileUpload(file) {
+        // 验证文件类型
+        const allowedTypes = ['audio/mp3', 'audio/wav', 'audio/m4a', 'audio/aac', 'audio/mpeg'];
+        if (!allowedTypes.includes(file.type) && !file.name.match(/\.(mp3|wav|m4a|aac)$/i)) {
+            alert('请选择支持的音频格式：MP3, WAV, M4A, AAC');
+            return;
+        }
+
+        // 验证文件大小 (500MB)
+        if (file.size > 500 * 1024 * 1024) {
+            alert('文件大小不能超过500MB');
+            return;
+        }
+
+        // 显示进度区域
+        if (progressSection) {
+            progressSection.classList.remove('hidden');
+        }
+        
+        // 隐藏结果区域
+        if (resultSection) {
+            resultSection.classList.add('hidden');
+        }
+        if (summarySection) {
+            summarySection.classList.add('hidden');
+        }
+
+        // 重置进度
+        updateProgress(0, '准备上传...');
+        
+        // 开始计时
+        const startTime = Date.now();
+        let timerInterval;
+
+        try {
+            const formData = new FormData();
+            formData.append('file', file);
+
+            updateProgress(10, '正在上传文件...');
+            
+            // 启动计时器显示等待时长
+            timerInterval = setInterval(() => {
+                const elapsedSeconds = Math.floor((Date.now() - startTime) / 1000);
+                const minutes = Math.floor(elapsedSeconds / 60);
+                const seconds = elapsedSeconds % 60;
+                const timeStr = minutes > 0 ? `${minutes}分${seconds}秒` : `${seconds}秒`;
+                
+                if (statusDetails) {
+                    statusDetails.textContent = `处理中，已等待: ${timeStr}`;
+                }
+            }, 1000);
+
+            const response = await fetch('/api/voice_log', {
+                method: 'POST',
+                body: formData
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
+            updateProgress(50, '文件上传完成，正在进行语音识别...');
+
+            const result = await response.json();
+            
+            // 清除计时器
+            if (timerInterval) {
+                clearInterval(timerInterval);
+            }
+            
+            const totalTime = Math.floor((Date.now() - startTime) / 1000);
+            const totalMinutes = Math.floor(totalTime / 60);
+            const totalSeconds = totalTime % 60;
+            const totalTimeStr = totalMinutes > 0 ? `${totalMinutes}分${totalSeconds}秒` : `${totalSeconds}秒`;
+            
+            updateProgress(100, `处理完成！总用时: ${totalTimeStr}`);
+            
+            // 显示转录结果
+            currentTranscription = result.text || '';
+            if (transcriptionContent) {
+                transcriptionContent.textContent = currentTranscription;
+            }
+            if (resultSection) {
+                resultSection.classList.remove('hidden');
+            }
+
+            // 如果有摘要，显示摘要区域
+            if (result.summary) {
+                if (summaryResult) {
+                    summaryResult.innerHTML = `<p>${result.summary}</p>`;
+                }
+                if (summarySection) {
+                    summarySection.classList.remove('hidden');
+                }
+            } else {
+                // 显示摘要生成按钮
+                if (summarySection) {
+                    summarySection.classList.remove('hidden');
+                }
+            }
+
+            // 显示最终状态
+            if (statusDetails) {
+                statusDetails.textContent = `处理完成，总用时: ${totalTimeStr}`;
+            }
+
+            // 隐藏进度区域
+            setTimeout(() => {
+                if (progressSection) {
+                    progressSection.classList.add('hidden');
+                }
+            }, 3000);
+
+        } catch (error) {
+            // 清除计时器
+            if (timerInterval) {
+                clearInterval(timerInterval);
+            }
+            
+            console.error('上传失败:', error);
+            updateProgress(0, '上传失败，请重试');
+            if (statusDetails) {
+                statusDetails.textContent = `错误详情: ${error.message}`;
+            }
+        }
+    }
+
+    // 更新进度显示
+    function updateProgress(percent, message) {
+        if (progressFill) {
+            progressFill.style.width = `${percent}%`;
+        }
+        if (progressText) {
+            progressText.textContent = message;
+        }
+    }
+
+    // 生成摘要功能
+    if (generateSummaryBtn) {
+        generateSummaryBtn.addEventListener('click', async () => {
+            if (!currentTranscription) {
+                alert('请先上传音频文件进行转录');
+                return;
+            }
+
+            const summaryTypeValue = summaryType ? summaryType.value : 'day_report';
+            
+            generateSummaryBtn.disabled = true;
+            generateSummaryBtn.textContent = '生成中...';
+
+            try {
+                const response = await fetch('/api/summary', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        text: currentTranscription,
+                        summary_type: summaryTypeValue
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const result = await response.json();
+                
+                if (summaryResult) {
+                    summaryResult.innerHTML = `<p>${result.summary}</p>`;
+                }
+
+            } catch (error) {
+                console.error('摘要生成失败:', error);
+                if (summaryResult) {
+                    summaryResult.innerHTML = `<p style="color: red;">摘要生成失败: ${error.message}</p>`;
+                }
+            } finally {
+                generateSummaryBtn.disabled = false;
+                generateSummaryBtn.textContent = '生成摘要';
+            }
+        });
+    }
+
+    // 录音功能
+    if (recordButton) {
+        recordButton.addEventListener("click", async () => {
+        if (!isRecording) {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                mediaRecorder = new MediaRecorder(stream);
+                mediaRecorder.start();
+                isRecording = true;
+                recordButton.textContent = "停止录音";
+                recordButton.classList.add("recording");
+                if (statusDiv) statusDiv.textContent = "录音中...";
+                audioChunks = [];
+
+                mediaRecorder.addEventListener("dataavailable", event => {
+                    audioChunks.push(event.data);
+                });
+
+                mediaRecorder.addEventListener("stop", async () => {
+                    const audioBlob = new Blob(audioChunks, { type: "audio/wav" });
+                    await uploadAudio(audioBlob);
+                    isRecording = false;
+                recordButton.textContent = "开始录音";
+                recordButton.classList.remove("recording");
+                if (statusDiv) statusDiv.textContent = "录音完成，等待处理结果...";
+                });
+
+            } catch (error) {
+                console.error("录音失败:", error);
+                if (statusDiv) statusDiv.textContent = "错误：无法获取麦克风权限。请检查浏览器设置。";
+            }
+        } else {
+            mediaRecorder.stop();
+        }
+        });
+    }
+
+    // 上传音频文件
+    async function uploadAudio(audioBlob) {
+        const formData = new FormData();
+        formData.append("file", audioBlob, "recording.wav");
+
+        try {
+            const response = await fetch("/api/voice_log", {
+                method: "POST",
+                body: formData,
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
+            const data = await response.json();
+            if (statusDiv) statusDiv.textContent = "处理完成！";
+            if (resultDiv) resultDiv.innerHTML = `<strong>识别内容:</strong><p>${data.text}</p>`;
+            if (summaryDiv) summaryDiv.innerHTML = `<strong>智能摘要:</strong><p>${data.summary}</p>`;
+
+        } catch (error) {
+            console.error("上传失败:", error);
+            if (statusDiv) statusDiv.textContent = "错误：上传或处理失败。";
+            if (resultDiv) resultDiv.textContent = "";
+            if (summaryDiv) summaryDiv.textContent = "";
+        }
+    }
+
+    // 智能查询功能
+    if (queryButton) {
+        queryButton.addEventListener("click", async () => {
+        const query = queryInput ? queryInput.value : '';
+        if (!query) {
+            if (queryResultDiv) queryResultDiv.textContent = "请输入查询内容。";
+            return;
+        }
+
+        try {
+            if (queryResultDiv) queryResultDiv.textContent = "查询中...";
+            const response = await fetch(`/api/query?query=${encodeURIComponent(query)}`);
+
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
+            const data = await response.json();
+            if (data.answer) {
+                if (queryResultDiv) queryResultDiv.innerHTML = `<strong>查询结果:</strong><p>${data.answer}</p>`;
+            } else {
+                if (queryResultDiv) queryResultDiv.textContent = "未找到相关信息。";
+            }
+
+        } catch (error) {
+            console.error("查询失败:", error);
+            if (queryResultDiv) queryResultDiv.textContent = "错误：查询失败。";
+        }
+        });
+    }
+});

@@ -93,4 +93,4 @@ The base URL for all API endpoints is the root of the application.
 
 - **Endpoint**: `/static/{file_path}`
 - **Method**: `GET`
-- **Description**: Serves static files (CSS, JavaScript, etc.) from the `frontend` directory.
+- **Description**: Serves static files (CSS, JavaScript, etc.) from the `static` directory. Falls back to the `frontend` directory for backward compatibility.
