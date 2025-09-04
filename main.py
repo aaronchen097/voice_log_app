@@ -5,6 +5,8 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 import os
 from datetime import datetime
+import logging
+from dotenv import load_dotenv
 from utils import (
     transcribe_audio,
     get_summary,
@@ -13,6 +15,42 @@ from utils import (
     get_latest_log_summary,
     LOG_DIR
 )
+
+# ------------------------------------------------------------
+# 环境变量加载与校验
+# ------------------------------------------------------------
+
+load_dotenv()  # 自动加载同目录或上级的 .env 文件（若存在）
+
+REQUIRED_ENV_VARS = [
+    "ALIBABA_CLOUD_ACCESS_KEY_ID",
+    "ALIBABA_CLOUD_ACCESS_KEY_SECRET",
+    "APPKEY",
+]
+
+OPTIONAL_ENV_VARS = [
+    "OSS_ENDPOINT",
+    "OSS_BUCKET_NAME",
+    "OPENROUTER_API_KEY",
+    "DASHSCOPE_API_KEY",
+]
+
+def _validate_env():
+    missing = [k for k in REQUIRED_ENV_VARS if not os.getenv(k)]
+    if missing:
+        logging.warning(
+            "缺少必要环境变量: %s (部分功能将不可用, 请在 .env 中添加)", ",".join(missing)
+        )
+    # 仅提示可选
+    optional_missing = [k for k in OPTIONAL_ENV_VARS if not os.getenv(k)]
+    if optional_missing:
+        logging.info("未配置可选环境变量: %s", ",".join(optional_missing))
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="[%(asctime)s] %(levelname)s %(name)s: %(message)s",
+)
+_validate_env()
 
 app = FastAPI(
     title="语音智能日志 API",
