@@ -1,0 +1,37 @@
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.swp
+*.tmp
+*.log
+
+.venv/
+.env
+.git/
+.gitignore
+
+# Docker/build files
+Dockerfile
+docker-compose.yml
+
+# Notebooks & checkpoints
+.ipynb_checkpoints/
+ipynb_testFiles/
+
+# OS-specific
+.DS_Store
+Thumbs.db
+
+# Deployment and documentation files
+voice-log-deployment/
+voice-log-v1.0-deployment.zip
+API_Documentation.md
+DEPLOYMENT_GUIDE.md
+README.md
+simple_frontend.html
+本地打包部署指南.md
+*.zip
+*.tar
+*.sh
+temp_uploads/

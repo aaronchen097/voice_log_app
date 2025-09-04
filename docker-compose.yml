@@ -1,0 +1,14 @@
+name: voice-log
+
+services:
+  app:
+    build: .
+    container_name: voice-log-app
+    restart: unless-stopped
+    command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "31101"]
+    env_file:
+      - .env
+    environment:
+      - REGION_ID=cn-beijing
+    ports:
+      - "31101:31101"

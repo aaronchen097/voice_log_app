@@ -1,0 +1,14 @@
+# Ignore virtual environment
+.venv/
+
+# Ignore temporary uploads
+/temp_uploads/
+
+# Ignore packaged docker images
+*.tar
+
+# Ignore other unnecessary files
+.vscode/
+__pycache__/
+*.pyc
+.DS_Store
