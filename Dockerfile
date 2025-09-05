@@ -10,12 +10,9 @@ COPY backend/requirements.txt ./
 RUN pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple -r requirements.txt
 
 # Copy application source code
-COPY backend/main.py ./
-COPY backend/utils.py ./
+COPY backend/ ./
 
-# Copy static files
-COPY static ./static
-# Copy frontend files (for compatibility)
+# Copy frontend files (includes static files)
 COPY frontend ./frontend
 
 EXPOSE 31101
