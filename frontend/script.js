@@ -21,17 +21,47 @@ document.addEventListener("DOMContentLoaded", () => {
     function getAuthToken() {
         return localStorage.getItem('sessionToken') || '';
     }
+    
+    // 验证token有效性
+    async function validateToken() {
+        const token = getAuthToken();
+        if (!token) {
+            return false;
+        }
+        
+        try {
+            const response = await fetch('/api/user/info?session_id=' + encodeURIComponent(token), {
+                method: 'GET',
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            });
+            
+            if (response.ok) {
+                return true;
+            } else if (response.status === 401) {
+                // Token已过期或无效，清除本地存储
+                console.log('Token已过期，清除会话信息');
+                sessionStorage.removeItem('user_info');
+                sessionStorage.removeItem('login_time');
+                sessionStorage.removeItem('session_active');
+                sessionStorage.removeItem('temp_user_info');
+                localStorage.removeItem('sessionToken');
+                return false;
+            }
+        } catch (error) {
+            console.error('Token验证失败:', error);
+            return false;
+        }
+        
+        return false;
+    }
 
-    // 检查用户登录状态 - 每次刷新都要求重新登录
+    // 检查用户登录状态 - 支持会话持久化
     function checkAuthStatus() {
         console.log('checkAuthStatus: 开始检查认证状态');
         
-        // 清除localStorage中的登录信息（确保不会持久化）
-        localStorage.removeItem('user_info');
-        localStorage.removeItem('login_time');
-        localStorage.removeItem('sessionToken');
-        
-        // 检查是否刚刚登录成功（通过sessionStorage）
+        // 检查sessionStorage中的会话状态
         const sessionActive = sessionStorage.getItem('session_active');
         const userInfo = sessionStorage.getItem('user_info');
         const loginTime = sessionStorage.getItem('login_time');
@@ -41,22 +71,31 @@ document.addEventListener("DOMContentLoaded", () => {
         console.log('checkAuthStatus: loginTime =', loginTime);
         
         if (sessionActive && userInfo && loginTime) {
-            console.log('checkAuthStatus: 发现有效会话，允许访问');
-            // 刚刚登录成功，允许访问但清除会话信息（确保下次刷新需要重新登录）
-            sessionStorage.removeItem('user_info');
-            sessionStorage.removeItem('login_time');
-            sessionStorage.removeItem('session_active');
+            // 检查会话是否过期（8小时）
+            const loginDate = new Date(loginTime);
+            const now = new Date();
+            const timeDiff = (now - loginDate) / (1000 * 60 * 60); // 转换为小时
             
-            // 临时保存用户信息用于显示
-            sessionStorage.setItem('temp_user_info', userInfo);
-            
-            return true;
-        } else {
-            console.log('checkAuthStatus: 没有有效会话，跳转到登录页面');
-            // 没有有效的登录会话，跳转到登录页面
-            window.location.href = '/login';
-            return false;
+            if (timeDiff < 8) {
+                console.log('checkAuthStatus: 发现有效会话，允许访问');
+                // 保存用户信息用于显示
+                sessionStorage.setItem('temp_user_info', userInfo);
+                return true;
+            } else {
+                console.log('checkAuthStatus: 会话已过期，清除会话信息');
+                // 会话过期，清除所有会话信息
+                sessionStorage.removeItem('user_info');
+                sessionStorage.removeItem('login_time');
+                sessionStorage.removeItem('session_active');
+                sessionStorage.removeItem('temp_user_info');
+                localStorage.removeItem('sessionToken');
+            }
         }
+        
+        console.log('checkAuthStatus: 没有有效会话，跳转到登录页面');
+        // 没有有效的登录会话，跳转到登录页面
+        window.location.href = '/login';
+        return false;
     }
     
     // 显示用户状态栏
@@ -211,6 +250,18 @@ document.addEventListener("DOMContentLoaded", () => {
         }
 
         // 重置进度
+        updateProgress(0, '验证登录状态...');
+        
+        // 验证token有效性
+        const isTokenValid = await validateToken();
+        if (!isTokenValid) {
+            updateProgress(0, '登录已过期，请重新登录');
+            setTimeout(() => {
+                window.location.href = '/login';
+            }, 2000);
+            return;
+        }
+        
         updateProgress(0, '准备上传...');
         
         // 开始计时
@@ -267,7 +318,12 @@ document.addEventListener("DOMContentLoaded", () => {
             const totalSeconds = totalTime % 60;
             const totalTimeStr = totalMinutes > 0 ? `${totalMinutes}分${totalSeconds}秒` : `${totalSeconds}秒`;
             
-            updateProgress(100, `处理完成！总用时: ${totalTimeStr}`);
+            updateProgress(100, `✅ 上传成功！总用时: ${totalTimeStr}`);
+            
+            // 显示上传成功提示
+            console.log('准备显示成功提示');
+            showSuccessMessage('文件上传成功！语音转录已完成。');
+            console.log('成功提示已调用');
             
             // 显示转录结果
             currentTranscription = result.text || '';
@@ -295,7 +351,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
             // 显示最终状态
             if (statusDetails) {
-                statusDetails.textContent = `处理完成，总用时: ${totalTimeStr}`;
+                statusDetails.innerHTML = `<span style="color: #28a745; font-weight: bold;">✅ 处理完成</span>，总用时: ${totalTimeStr}`;
             }
 
             // 隐藏进度区域
@@ -327,6 +383,99 @@ document.addEventListener("DOMContentLoaded", () => {
         if (progressText) {
             progressText.textContent = message;
         }
+    }
+
+    // 显示成功提示消息
+    function showSuccessMessage(message) {
+        console.log('showSuccessMessage被调用，消息:', message);
+        // 创建成功提示元素
+        const successAlert = document.createElement('div');
+        successAlert.className = 'success-alert';
+        successAlert.innerHTML = `
+            <div class="success-content">
+                <span class="success-icon">✅</span>
+                <span class="success-text">${message}</span>
+                <button class="success-close" onclick="this.parentElement.parentElement.remove()">&times;</button>
+            </div>
+        `;
+        
+        // 添加样式
+        successAlert.style.cssText = `
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: #d4edda;
+            border: 1px solid #c3e6cb;
+            border-radius: 8px;
+            padding: 15px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            z-index: 9999;
+            max-width: 400px;
+            animation: slideIn 0.3s ease-out;
+            display: block;
+            visibility: visible;
+            opacity: 1;
+        `;
+        console.log('成功提示样式已设置');
+        
+        // 添加动画样式
+        if (!document.querySelector('#success-alert-styles')) {
+            const style = document.createElement('style');
+            style.id = 'success-alert-styles';
+            style.textContent = `
+                @keyframes slideIn {
+                    0% { transform: translateX(100%); opacity: 0; }
+                    100% { transform: translateX(0); opacity: 1; }
+                }
+                .success-alert {
+                    transform: translateX(0) !important;
+                    opacity: 1 !important;
+                }
+                .success-content {
+                    display: flex;
+                    align-items: center;
+                    gap: 10px;
+                    color: #155724;
+                }
+                .success-icon {
+                    font-size: 18px;
+                }
+                .success-text {
+                    flex: 1;
+                    font-weight: 500;
+                }
+                .success-close {
+                    background: none;
+                    border: none;
+                    font-size: 20px;
+                    cursor: pointer;
+                    color: #155724;
+                    padding: 0;
+                    width: 24px;
+                    height: 24px;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                }
+                .success-close:hover {
+                    background: rgba(21, 87, 36, 0.1);
+                    border-radius: 50%;
+                }
+            `;
+            document.head.appendChild(style);
+        }
+        
+        // 添加到页面
+        document.body.appendChild(successAlert);
+        console.log('成功提示元素已添加到页面');
+        
+        // 3秒后自动消失
+        setTimeout(() => {
+            if (successAlert.parentElement) {
+                successAlert.remove();
+                console.log('成功提示元素已移除');
+            }
+        }, 3000);
     }
 
     // 生成摘要功能

@@ -83,6 +83,11 @@ class LoginManager {
                 sessionStorage.setItem('login_time', new Date().toISOString());
                 sessionStorage.setItem('session_active', 'true');
                 
+                // 保存session_id作为token到localStorage供上传使用
+                if (result.user && result.user.session_id) {
+                    localStorage.setItem('sessionToken', result.user.session_id);
+                }
+                
                 // 立即跳转到主页（不使用延迟）
                 window.location.href = '/';
                 

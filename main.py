@@ -162,9 +162,8 @@ async def create_voice_log(file: UploadFile = File(...), current_user: UserSessi
         summary = get_summary(text)
 
         # 3. 保存到飞书多维表格
-        log_content = f"音频文件: {file.filename}"
         feishu_save_success = save_voice_log(
-            content=log_content,
+            content=summary,  # 日志内容字段存储AI智能摘要
             user_id=current_user.user_id,
             transcription=text,
             summary=summary

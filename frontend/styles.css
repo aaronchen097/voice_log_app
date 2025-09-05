@@ -25,6 +25,7 @@
     --text-secondary: #475569;
     --text-muted: #64748B;
     --text-disabled: #94A3B8;
+    --muted-text-color: #64748B;
     
     /* 边框和分割线 */
     --border-color: rgba(16, 185, 129, 0.15);
@@ -44,6 +45,7 @@
     --gradient-primary: linear-gradient(135deg, #10B981 0%, #059669 100%);
     --gradient-light: linear-gradient(135deg, #F8FAFC 0%, #E2E8F0 50%, #F1F5F9 100%);
     --gradient-green: linear-gradient(135deg, #10B981 0%, #059669 100%);
+    --gradient-purple: linear-gradient(135deg, #8B5CF6 0%, #7C3AED 100%);
     --gradient-accent: linear-gradient(135deg, #06B6D4 0%, #3B82F6 100%);
     --gradient-card: linear-gradient(145deg, rgba(255,255,255,0.9) 0%, rgba(255,255,255,0.7) 100%);
     
@@ -549,6 +551,9 @@ button:disabled::before, .btn-primary:disabled::before {
 
 .progress-section {
     padding: 2rem;
+}
+
+.progress-section.hidden {
     display: none;
 }
 

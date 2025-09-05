@@ -46,6 +46,20 @@ class FeishuBitableClient:
                 logger.error(f"初始化token管理器失败: {e}，使用静态token")
                 self.auto_token_refresh = False
         
+        # 初始化OAuth处理器
+        self.oauth_handler = None
+        try:
+            from oauth_handler import get_oauth_handler
+            app_id = os.getenv('FEISHU_APP_ID')
+            app_secret = os.getenv('FEISHU_APP_SECRET')
+            if app_id and app_secret and app_id != 'cli_a7a0c7c0d5f8d00c':  # 检查是否为示例值
+                self.oauth_handler = get_oauth_handler()
+                logger.info("OAuth处理器已初始化")
+            else:
+                logger.warning("飞书OAuth配置不完整或使用示例值，OAuth功能将不可用")
+        except Exception as e:
+            logger.warning(f"初始化OAuth处理器失败: {e}")
+        
         # 配置信息 - 从环境变量读取
         self.user_app_token = os.getenv("FEISHU_USER_APP_TOKEN", "HSvLb0OOBajIF2sXWPEc7NednXd")
         self.user_table_id = os.getenv("FEISHU_USER_TABLE_ID", "tblp6HXTjdkOjX10")
@@ -346,17 +360,12 @@ class FeishuBitableClient:
                 # 准备要保存的数据
                 log_data = {
                     "日志内容": content,
-                    "人员": user_id,
-                    "创建时间": int(datetime.now().timestamp() * 1000)  # 毫秒时间戳
+                    "人员": user_id
                 }
                 
                 # 如果有转录文本，添加到数据中
                 if transcription:
-                    log_data["转录文本"] = transcription
-                
-                # 如果有AI摘要，添加到数据中
-                if summary:
-                    log_data["AI摘要"] = summary
+                    log_data["语音转录结果"] = transcription
                 
                 # 创建记录
                 result = self.create_records(
