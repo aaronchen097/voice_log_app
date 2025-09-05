@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>用户登录 - 语音智能日志系统</title>
+    <link rel="stylesheet" href="/static/css/styles.css">
+    <link rel="stylesheet" href="/frontend/css/login.css">
+</head>
+<body>
+    <div class="login-container">
+        <div class="login-card">
+            <div class="login-header">
+                <h1>🎙️ 语音智能日志系统</h1>
+                <p>请登录您的账户</p>
+            </div>
+            
+            <form class="login-form" id="login-form">
+                <div class="form-group">
+                    <label for="username">账号</label>
+                    <input type="text" id="username" name="username" required placeholder="请输入您的账号">
+                </div>
+                
+                <div class="form-group">
+                    <label for="password">密码</label>
+                    <input type="password" id="password" name="password" required placeholder="请输入您的密码">
+                </div>
+                
+                <div class="form-group">
+                    <button type="submit" class="btn-login" id="login-btn">
+                        <span class="btn-text">登录</span>
+                        <span class="btn-loading hidden">登录中...</span>
+                    </button>
+                </div>
+            </form>
+            
+            <!-- 飞书登录按钮 - 已隐藏但保留功能 -->
+            <div class="oauth-login">
+                <button type="button" class="btn-oauth-feishu" id="feishu-login-btn">
+                    <span class="oauth-icon">🚀</span>
+                    <span class="oauth-text">使用飞书账号登录</span>
+                </button>
+            </div>
+            
+            <div class="login-message" id="login-message"></div>
+            
+            <div class="login-footer">
+                <p>账号信息由飞书多维表格管理</p>
+                <p class="help-text">如需注册账号，请联系管理员</p>
+            </div>
+        </div>
+    </div>
+    
+    <script src="/frontend/js/login.js" defer></script>
+</body>
+</html>

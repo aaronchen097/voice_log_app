@@ -1,4 +1,13 @@
 document.addEventListener("DOMContentLoaded", () => {
+    // 如果当前是登录页面，则不执行后续的认证检查和功能初始化
+    if (window.location.pathname === '/login' || window.location.pathname === '/login.html') {
+        return;
+    }
+    // 检查用户登录状态
+    if (!checkAuthStatus()) {
+        return;
+    }
+
     // 原有元素
     const recordButton = document.getElementById("recordButton");
     const statusDiv = document.getElementById("status");
@@ -7,6 +16,96 @@ document.addEventListener("DOMContentLoaded", () => {
     const queryInput = document.getElementById("queryInput");
     const queryButton = document.getElementById("queryButton");
     const queryResultDiv = document.getElementById("queryResult");
+
+    // 获取认证token
+    function getAuthToken() {
+        return localStorage.getItem('sessionToken') || '';
+    }
+
+    // 检查用户登录状态 - 每次刷新都要求重新登录
+    function checkAuthStatus() {
+        console.log('checkAuthStatus: 开始检查认证状态');
+        
+        // 清除localStorage中的登录信息（确保不会持久化）
+        localStorage.removeItem('user_info');
+        localStorage.removeItem('login_time');
+        localStorage.removeItem('sessionToken');
+        
+        // 检查是否刚刚登录成功（通过sessionStorage）
+        const sessionActive = sessionStorage.getItem('session_active');
+        const userInfo = sessionStorage.getItem('user_info');
+        const loginTime = sessionStorage.getItem('login_time');
+        
+        console.log('checkAuthStatus: sessionActive =', sessionActive);
+        console.log('checkAuthStatus: userInfo =', userInfo);
+        console.log('checkAuthStatus: loginTime =', loginTime);
+        
+        if (sessionActive && userInfo && loginTime) {
+            console.log('checkAuthStatus: 发现有效会话，允许访问');
+            // 刚刚登录成功，允许访问但清除会话信息（确保下次刷新需要重新登录）
+            sessionStorage.removeItem('user_info');
+            sessionStorage.removeItem('login_time');
+            sessionStorage.removeItem('session_active');
+            
+            // 临时保存用户信息用于显示
+            sessionStorage.setItem('temp_user_info', userInfo);
+            
+            return true;
+        } else {
+            console.log('checkAuthStatus: 没有有效会话，跳转到登录页面');
+            // 没有有效的登录会话，跳转到登录页面
+            window.location.href = '/login';
+            return false;
+        }
+    }
+    
+    // 显示用户状态栏
+    function showUserStatus() {
+        const userStatus = document.getElementById('userStatus');
+        const username = document.getElementById('username');
+        const userInfo = sessionStorage.getItem('temp_user_info');
+        
+        if (userInfo && userStatus) {
+            try {
+                const user = JSON.parse(userInfo);
+                if (username) {
+                    username.textContent = user.username || '用户';
+                }
+                userStatus.style.display = 'flex';
+            } catch (error) {
+                console.error('解析用户信息失败:', error);
+            }
+        }
+    }
+    
+    // 退出登录功能
+    function logout() {
+        // 清除所有登录相关的存储信息
+        localStorage.removeItem('user_info');
+        localStorage.removeItem('login_time');
+        localStorage.removeItem('sessionToken');
+        sessionStorage.removeItem('user_info');
+        sessionStorage.removeItem('login_time');
+        sessionStorage.removeItem('session_active');
+        sessionStorage.removeItem('temp_user_info');
+        
+        // 跳转到登录页面
+        window.location.href = '/login';
+    }
+    
+    // 初始化用户界面
+    function initUserInterface() {
+        showUserStatus();
+        
+        // 绑定退出登录按钮事件
+        const logoutBtn = document.getElementById('logoutBtn');
+        if (logoutBtn) {
+            logoutBtn.addEventListener('click', logout);
+        }
+    }
+    
+    // 调用初始化函数
+    initUserInterface();
     
     // 新的文件上传元素
     const fileInput = document.getElementById("file-input");
@@ -138,8 +237,17 @@ document.addEventListener("DOMContentLoaded", () => {
 
             const response = await fetch('/api/voice_log', {
                 method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${getAuthToken()}`
+                },
                 body: formData
             });
+
+            if (response.status === 401) {
+                // 认证失败，跳转到登录页面
+                window.location.href = '/login';
+                return;
+            }
 
             if (!response.ok) {
                 throw new Error(`HTTP error! status: ${response.status}`);
@@ -238,13 +346,20 @@ document.addEventListener("DOMContentLoaded", () => {
                 const response = await fetch('/api/summary', {
                     method: 'POST',
                     headers: {
-                        'Content-Type': 'application/json'
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${getAuthToken()}`
                     },
                     body: JSON.stringify({
                         text: currentTranscription,
                         summary_type: summaryTypeValue
                     })
                 });
+
+                if (response.status === 401) {
+                    // 认证失败，跳转到登录页面
+                    window.location.href = '/login';
+                    return;
+                }
 
                 if (!response.ok) {
                     throw new Error(`HTTP error! status: ${response.status}`);
@@ -313,8 +428,17 @@ document.addEventListener("DOMContentLoaded", () => {
         try {
             const response = await fetch("/api/voice_log", {
                 method: "POST",
+                headers: {
+                    'Authorization': `Bearer ${getAuthToken()}`
+                },
                 body: formData,
             });
+
+            if (response.status === 401) {
+                // 认证失败，跳转到登录页面
+                window.location.href = '/login';
+                return;
+            }
 
             if (!response.ok) {
                 throw new Error(`HTTP error! status: ${response.status}`);
@@ -344,7 +468,17 @@ document.addEventListener("DOMContentLoaded", () => {
 
         try {
             if (queryResultDiv) queryResultDiv.textContent = "查询中...";
-            const response = await fetch(`/api/query?query=${encodeURIComponent(query)}`);
+            const response = await fetch(`/api/query?query=${encodeURIComponent(query)}`, {
+                headers: {
+                    'Authorization': `Bearer ${getAuthToken()}`
+                }
+            });
+
+            if (response.status === 401) {
+                // 认证失败，跳转到登录页面
+                window.location.href = '/login';
+                return;
+            }
 
             if (!response.ok) {
                 throw new Error(`HTTP error! status: ${response.status}`);

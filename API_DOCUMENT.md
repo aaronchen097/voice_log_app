@@ -94,3 +94,86 @@ The base URL for all API endpoints is the root of the application.
 - **Endpoint**: `/static/{file_path}`
 - **Method**: `GET`
 - **Description**: Serves static files (CSS, JavaScript, etc.) from the `static` directory. Falls back to the `frontend` directory for backward compatibility.
+
+### 6. OAuth Authentication
+
+#### 6.1 Initiate OAuth Login
+
+- **Endpoint**: `/auth/login`
+- **Method**: `GET`
+- **Description**: Initiates the Feishu OAuth authentication process by redirecting the user to Feishu's authorization server.
+- **Responses**:
+  - `307 Temporary Redirect`: Redirects to Feishu OAuth authorization URL.
+  - `500 Internal Server Error`: If OAuth configuration is missing or invalid.
+
+#### 6.2 OAuth Callback
+
+- **Endpoint**: `/auth/callback`
+- **Method**: `GET`
+- **Description**: Handles the OAuth callback from Feishu, exchanges the authorization code for access tokens.
+- **Query Parameters**:
+  - `code` (string, required): Authorization code from Feishu.
+  - `state` (string, required): State parameter for CSRF protection.
+- **Responses**:
+  - `200 OK`: Returns a JSON object indicating successful authentication.
+    ```json
+    {
+      "success": true,
+      "message": "登录成功",
+      "user_info": {
+        "name": "User Name",
+        "avatar_url": "https://...",
+        "open_id": "ou_..."
+      }
+    }
+    ```
+  - `400 Bad Request`: If required parameters are missing or invalid.
+  - `500 Internal Server Error`: If token exchange fails.
+
+#### 6.3 Check Authentication Status
+
+- **Endpoint**: `/auth/status`
+- **Method**: `GET`
+- **Description**: Checks the current authentication status of the user.
+- **Responses**:
+  - `200 OK`: Returns authentication status.
+    ```json
+    {
+      "success": true,
+      "is_authenticated": true,
+      "user_info": {
+        "name": "User Name",
+        "avatar_url": "https://...",
+        "open_id": "ou_..."
+      }
+    }
+    ```
+    Or if not authenticated:
+    ```json
+    {
+      "success": true,
+      "is_authenticated": false,
+      "message": "未找到认证token"
+    }
+    ```
+
+### 7. Traditional Login
+
+- **Endpoint**: `/api/login`
+- **Method**: `POST`
+- **Description**: Traditional username/password login endpoint (for backward compatibility).
+- **Request Body**:
+  ```json
+  {
+    "username": "admin",
+    "password": "password"
+  }
+  ```
+- **Responses**:
+  - `200 OK`: Returns login result.
+    ```json
+    {
+      "success": false,
+      "message": "账号或密码错误"
+    }
+    ```

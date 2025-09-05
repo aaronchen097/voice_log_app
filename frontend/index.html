@@ -8,6 +8,15 @@
 </head>
 <body>
     <div class="container">
+        <!-- 用户状态栏 -->
+        <div id="userStatus" class="user-status" style="display: none;">
+            <div class="user-info">
+                <span id="welcomeText">欢迎，</span>
+                <span id="username"></span>
+            </div>
+            <button id="logoutBtn" class="logout-btn">退出登录</button>
+        </div>
+        
         <header class="header">
             <h1>🎙️ 语音智能日志系统</h1>
             <p>上传音频文件，自动生成转录文本和AI摘要</p>
@@ -94,6 +103,6 @@
         </footer>
     </div>
     
-    <script src="/static/js/script.js" defer></script>
+    <script src="/frontend/script.js" defer></script>
 </body>
 </html>

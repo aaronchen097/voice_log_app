@@ -10,6 +10,7 @@
 - 🔊 **高精度语音转录**: 利用阿里云语音识别服务，确保高准确率的文本转换。
 - 🤖 **AI智能摘要**: 集成通义千问（qwen-plus）模型，自动生成会议纪要、内容摘要等。
 - 📊 **实时任务跟踪**: 在Web界面上实时查看音频处理、转录和摘要生成的任务状态。
+- 🔐 **飞书OAuth认证**: 支持飞书账号登录，提供安全的用户认证和授权机制。
 - 🌐 **简洁Web界面**: 提供一个干净、直观的前端界面，方便用户上传和查看结果。
 - 📚 **完整的API文档**: 通过Swagger UI和ReDoc提供交互式的API文档。
 
@@ -76,12 +77,20 @@
 
     **`.env` 文件内容:**
     ```
+    # 阿里云配置
     ALIBABA_CLOUD_ACCESS_KEY_ID="YOUR_ACCESS_KEY_ID"
     ALIBABA_CLOUD_ACCESS_KEY_SECRET="YOUR_ACCESS_KEY_SECRET"
     APPKEY="YOUR_APPKEY"
     OSS_ENDPOINT="YOUR_OSS_ENDPOINT"
     OSS_BUCKET_NAME="YOUR_OSS_BUCKET_NAME"
     DASHSCOPE_API_KEY="YOUR_DASHSCOPE_API_KEY"
+    
+    # 飞书OAuth配置
+    FEISHU_APP_ID="YOUR_FEISHU_APP_ID"
+    FEISHU_APP_SECRET="YOUR_FEISHU_APP_SECRET"
+    FEISHU_REDIRECT_URI="http://localhost:8000/auth/callback"
+    
+    # 服务配置
     PORT=31101
     ```
 
@@ -114,6 +123,42 @@
 - **API文档 (ReDoc)**: `http://localhost:31101/redoc`
 
 通过前端界面，您可以上传音频文件，并查看转录和摘要的结果。
+
+## 飞书OAuth认证配置
+
+本系统支持飞书OAuth认证，用户可以使用飞书账号登录系统。要启用此功能，需要进行以下配置：
+
+### 1. 创建飞书应用
+
+1. 访问 [飞书开放平台](https://open.feishu.cn/)
+2. 创建企业自建应用
+3. 在应用管理页面获取 `App ID` 和 `App Secret`
+4. 配置重定向URL：`http://your-domain:port/auth/callback`
+
+### 2. 配置环境变量
+
+在 `.env` 文件中添加以下配置：
+
+```bash
+FEISHU_APP_ID="cli_xxxxxxxxxxxxxxxxx"     # 飞书应用的App ID
+FEISHU_APP_SECRET="xxxxxxxxxxxxxxxx"      # 飞书应用的App Secret
+FEISHU_REDIRECT_URI="http://localhost:8000/auth/callback"  # OAuth回调地址
+```
+
+### 3. OAuth认证流程
+
+1. 用户点击"使用飞书账号登录"按钮
+2. 系统重定向到飞书授权页面
+3. 用户在飞书页面完成授权
+4. 飞书回调到系统，携带授权码
+5. 系统使用授权码获取用户访问令牌
+6. 完成登录，跳转到主页面
+
+### 4. API端点
+
+- `GET /auth/login` - 发起OAuth登录
+- `GET /auth/callback` - OAuth回调处理
+- `GET /auth/status` - 检查认证状态
 
 ##  Frontend
 
