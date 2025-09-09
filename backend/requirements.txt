@@ -8,5 +8,6 @@ requests==2.32.3
 python-multipart==0.0.9
 dashscope==1.24.2
 pymilvus==2.4.9
-lark-oapi==1.2.18
-pandas==2.2.2
+lark-oapi==1.4.22
+numpy>=1.24.0
+pandas>=2.0.0

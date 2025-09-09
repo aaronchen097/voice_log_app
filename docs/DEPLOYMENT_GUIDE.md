@@ -45,19 +45,24 @@
 
     ```powershell
     # 使用 PowerShell 脚本打包，并指定版本号
-    ./local_build.ps1 -Version v1.0.0
+    ./local_build.ps1 -Version v1.1.0
+    
+    # 可选：清理旧镜像
+    ./local_build.ps1 -Version v1.1.0 -Clean
     ```
 
 -   **如果您使用 macOS 或 Linux (Bash):**
 
     ```bash
     # 使用 Bash 脚本打包，并指定版本号
-    ./local_build.sh v1.0.0
+    ./local_build.sh v1.1.0
     ```
 
 脚本会自动完成以下工作：
 *   **构建 Docker 镜像**：基于 `Dockerfile` 创建包含所有代码和依赖的镜像。
-*   **打包镜像**：将镜像保存为一个 `.tar` 文件，例如 `voice-log-app-v1.0.0.tar`。
+*   **打包镜像**：将镜像保存为一个 `.tar` 文件，例如 `voice-log-app-v1.1.0.tar`。
+*   **错误处理**：自动检查Docker状态，提供详细的构建日志。
+*   **版本管理**：支持自定义版本号，便于版本追踪。
 
 打包完成后，您会在项目根目录下看到这个 `.tar` 文件。
 
@@ -75,7 +80,7 @@
 ### 步骤 2：上传必要文件
 您 **只需要** 将以下 **4个文件** 上传到服务器的一个专用目录（例如 `/root/AI_Voice_Log`）。
 
-1.  **打包好的镜像**：例如 `voice-log-app-v1.0.0.tar`
+1.  **打包好的镜像**：例如 `voice-log-app-v1.1.0.tar`
 2.  **Docker Compose 配置文件**：`docker-compose.yml`
 3.  **环境变量文件**：`.env`
 4.  **部署脚本**：`server_deploy.sh`
@@ -83,7 +88,7 @@
 您可以使用 `scp` 或任何 FTP 工具上传。`scp` 命令示例如下：
 ```bash
 # 在本地终端中运行
-scp voice-log-app-v1.0.0.tar docker-compose.yml .env server_deploy.sh root@your_server_ip:/root/AI_Voice_Log
+scp voice-log-app-v1.1.0.tar docker-compose.yml .env server_deploy.sh root@your_server_ip:/root/AI_Voice_Log
 ```
 
 ### 步骤 3：连接到服务器并一键部署
@@ -106,14 +111,21 @@ scp voice-log-app-v1.0.0.tar docker-compose.yml .env server_deploy.sh root@your_
 4.  **运行部署脚本**：
     ```bash
     # 将 .tar 文件名作为参数传入
-    ./server_deploy.sh voice-log-app-v1.0.0.tar
+    ./server_deploy.sh voice-log-app-v1.1.0.tar
+    
+    # 可选：跳过健康检查（适用于调试）
+    ./server_deploy.sh voice-log-app-v1.1.0.tar --skip-health-check
     ```
 
 脚本会自动、安全地完成所有操作：
+*   **预检查**：验证Docker状态和必要文件。
+*   **备份当前版本**：自动创建当前运行版本的备份。
 *   **加载镜像**：从 `.tar` 文件加载 Docker 镜像。
 *   **强制清理旧容器**：确保端口被释放。
 *   **清理旧网络**：移除旧的容器网络。
 *   **启动新版本**：在后台启动新的应用容器。
+*   **健康检查**：验证新版本是否正常运行（端口31101）。
+*   **自动回滚**：如果部署失败，自动回滚到备份版本。
 
 ---
 

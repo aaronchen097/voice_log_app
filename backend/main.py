@@ -347,18 +347,18 @@ async def generate_summary_endpoint(request: SummaryRequest):
         return JSONResponse(content={"error": str(e)}, status_code=500)
 
 # 挂载静态文件目录
-app.mount("/static", StaticFiles(directory="../frontend"), name="static")
-app.mount("/frontend", StaticFiles(directory="../frontend"), name="frontend")
+app.mount("/static", StaticFiles(directory="./frontend"), name="static")
+app.mount("/frontend", StaticFiles(directory="./frontend"), name="frontend")
 
 # 将根路径指向 index.html
 @app.get("/", include_in_schema=False)
 async def read_index():
-    return FileResponse('../frontend/index.html')
+    return FileResponse('./frontend/index.html')
 
 @app.get("/login", include_in_schema=False)
 async def login_page():
     """返回登录页面"""
-    return FileResponse("../frontend/login.html")
+    return FileResponse("./frontend/login.html")
 
 if __name__ == "__main__":
     import uvicorn
