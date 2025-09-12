@@ -48,41 +48,57 @@
                 </div>
             </section>
             
-            <!-- 进度显示 -->
-            <section class="progress-section hidden" id="progress-section">
-                <div class="progress-container">
-                    <div class="progress-header">
-                        <div class="progress-title">
-                            <span class="progress-icon">⏳</span>
-                            <span>音频转写进度</span>
+            <!-- 多任务进度显示 -->
+            <section class="tasks-section" id="tasks-section">
+                <div class="tasks-header">
+                    <h3>📋 上传任务</h3>
+                    <button class="btn-secondary" id="clear-completed-btn" style="display: none;">清除已完成</button>
+                </div>
+                <div class="tasks-container" id="tasks-container">
+                    <!-- 动态生成的任务进度条将在这里显示 -->
+                </div>
+            </section>
+            
+            <!-- 任务进度条模板 (隐藏) -->
+            <template id="task-progress-template">
+                <div class="task-progress" data-task-id="">
+                    <div class="task-header">
+                        <div class="task-info">
+                            <span class="task-icon">⏳</span>
+                            <span class="task-filename"></span>
+                            <span class="task-status">准备中...</span>
                         </div>
-                        <div class="progress-timer" id="progress-timer">
-                            <span class="timer-label">等待时间:</span>
-                            <span class="timer-value" id="timer-value">0秒</span>
+                        <div class="task-actions">
+                            <span class="task-timer">0秒</span>
+                            <button class="task-collapse-btn" title="折叠/展开">−</button>
                         </div>
                     </div>
-                    <div class="progress-bar">
-                        <div class="progress-fill" id="progress-fill"></div>
-                        <div class="progress-percentage" id="progress-percentage">0%</div>
-                    </div>
-                    <div class="progress-text" id="progress-text">准备中...</div>
-                    <div class="progress-steps">
-                        <div class="step" id="step-upload">
-                            <span class="step-icon">📤</span>
-                            <span class="step-text">文件上传</span>
+                    <div class="task-content">
+                        <div class="progress-bar">
+                            <div class="progress-fill"></div>
+                            <div class="progress-percentage">0%</div>
                         </div>
-                        <div class="step" id="step-process">
-                            <span class="step-icon">🔄</span>
-                            <span class="step-text">语音识别</span>
+                        <div class="progress-steps">
+                            <div class="step" data-step="upload">
+                                <span class="step-icon">📤</span>
+                                <span class="step-text">文件上传</span>
+                            </div>
+                            <div class="step" data-step="process">
+                                <span class="step-icon">🔄</span>
+                                <span class="step-text">语音识别</span>
+                            </div>
+                            <div class="step" data-step="complete">
+                                <span class="step-icon">✅</span>
+                                <span class="step-text">处理完成</span>
+                            </div>
                         </div>
-                        <div class="step" id="step-complete">
-                            <span class="step-icon">✅</span>
-                            <span class="step-text">处理完成</span>
+                        <div class="task-result" style="display: none;">
+                            <div class="result-preview"></div>
+                            <button class="btn-secondary view-result-btn">查看完整结果</button>
                         </div>
                     </div>
                 </div>
-                <div class="status-details" id="status-details"></div>
-            </section>
+            </template>
             
             <!-- 转录结果 -->
             <section class="result-section hidden" id="result-section">
@@ -128,6 +144,6 @@
         </footer>
     </div>
     
-    <script src="/static/js/script.js" defer></script>
+    <script src="/static/js/script.js?v=1.2" defer></script>
 </body>
 </html>

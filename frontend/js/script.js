@@ -8,14 +8,7 @@ document.addEventListener("DOMContentLoaded", () => {
         return;
     }
 
-    // 原有元素
-    const recordButton = document.getElementById("recordButton");
-    const statusDiv = document.getElementById("status");
-    const resultDiv = document.getElementById("result");
-    const summaryDiv = document.getElementById("summary");
-    const queryInput = document.getElementById("queryInput");
-    const queryButton = document.getElementById("queryButton");
-    const queryResultDiv = document.getElementById("queryResult");
+    // DOM元素引用已移至需要时获取，避免页面加载时元素不存在的问题
 
     // 获取认证token
     function getAuthToken() {
@@ -23,22 +16,38 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     
     // 验证token有效性
-    async function validateToken() {
+    // Token验证缓存
+    let tokenValidationCache = null;
+    let tokenValidationTime = null;
+    
+    async function validateToken(useCache = true) {
         const token = getAuthToken();
         if (!token) {
             return false;
         }
         
+        // 如果启用缓存且缓存有效（5分钟内），直接返回缓存结果
+        if (useCache && tokenValidationCache !== null && tokenValidationTime) {
+            const now = Date.now();
+            const cacheAge = now - tokenValidationTime;
+            if (cacheAge < 5 * 60 * 1000) { // 5分钟缓存
+                console.log('使用缓存的token验证结果');
+                return tokenValidationCache;
+            }
+        }
+        
         try {
-            const response = await fetch('/api/user/info?session_id=' + encodeURIComponent(token), {
+            console.log('执行token验证请求');
+            const response = await fetch('/api/user/info', {
                 method: 'GET',
                 headers: {
                     'Authorization': `Bearer ${token}`
                 }
             });
             
+            let isValid = false;
             if (response.ok) {
-                return true;
+                isValid = true;
             } else if (response.status === 401) {
                 // Token已过期或无效，清除本地存储
                 console.log('Token已过期，清除会话信息');
@@ -47,14 +56,27 @@ document.addEventListener("DOMContentLoaded", () => {
                 sessionStorage.removeItem('session_active');
                 sessionStorage.removeItem('temp_user_info');
                 localStorage.removeItem('sessionToken');
-                return false;
+                isValid = false;
             }
+            
+            // 更新缓存
+            if (useCache) {
+                tokenValidationCache = isValid;
+                tokenValidationTime = Date.now();
+            }
+            
+            return isValid;
         } catch (error) {
             console.error('Token验证失败:', error);
+            // 验证失败时不更新缓存，保持之前的状态
             return false;
         }
-        
-        return false;
+    }
+    
+    // 清除token验证缓存（在登出或token变更时调用）
+    function clearTokenValidationCache() {
+        tokenValidationCache = null;
+        tokenValidationTime = null;
     }
 
     // 检查用户登录状态 - 支持会话持久化
@@ -128,6 +150,9 @@ document.addEventListener("DOMContentLoaded", () => {
         sessionStorage.removeItem('session_active');
         sessionStorage.removeItem('temp_user_info');
         
+        // 清除token验证缓存
+        clearTokenValidationCache();
+        
         // 跳转到登录页面
         window.location.href = '/login';
     }
@@ -147,25 +172,283 @@ document.addEventListener("DOMContentLoaded", () => {
     initUserInterface();
     
     // 新的文件上传元素
+    // 获取实际存在的DOM元素
     const fileInput = document.getElementById("file-input");
     const uploadArea = document.getElementById("upload-area");
-    const progressSection = document.getElementById("progress-section");
-    const progressFill = document.getElementById("progress-fill");
-    const progressText = document.getElementById("progress-text");
-    const statusDetails = document.getElementById("status-details");
-    const resultSection = document.getElementById("result-section");
-    const summarySection = document.getElementById("summary-section");
-    const transcriptionContent = document.getElementById("transcription-content");
-    const summaryResult = document.getElementById("summary-result");
-    const generateSummaryBtn = document.getElementById("generate-summary-btn");
-    const summaryType = document.getElementById("summary-type");
     const tabBtns = document.querySelectorAll('.tab-btn');
     const tabContents = document.querySelectorAll('.tab-content');
+    
+    // 其他元素在需要时动态获取，避免页面加载时不存在的问题
 
     let mediaRecorder;
     let audioChunks = [];
     let isRecording = false;
     let currentTranscription = '';
+    
+    // 任务管理器类
+    class TaskManager {
+        constructor() {
+            this.tasks = new Map();
+            this.activeUploads = 0;
+            this.maxConcurrentUploads = 3;
+        }
+        
+        // 创建新任务
+        createTask(file) {
+            const taskId = 'task_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+            const task = {
+                id: taskId,
+                filename: file.name,
+                file: file,
+                status: 'pending', // pending, uploading, processing, completed, failed
+                progress: 0,
+                startTime: Date.now(),
+                element: null,
+                result: null,
+                error: null
+            };
+            
+            this.tasks.set(taskId, task);
+            this.createTaskElement(task);
+            return task;
+        }
+        
+        // 创建任务DOM元素
+        createTaskElement(task) {
+            const template = document.getElementById('task-progress-template');
+            const tasksContainer = document.getElementById('tasks-container');
+            const tasksSection = document.getElementById('tasks-section');
+            
+            if (!template || !tasksContainer) return;
+            
+            // 显示任务区域
+            if (tasksSection) {
+                tasksSection.classList.remove('hidden');
+            }
+            
+            // 克隆模板
+            const taskElement = template.content.cloneNode(true);
+            const taskDiv = taskElement.querySelector('.task-progress');
+            
+            // 设置任务ID和文件名
+            taskDiv.setAttribute('data-task-id', task.id);
+            taskDiv.querySelector('.task-filename').textContent = task.filename;
+            
+            // 绑定折叠按钮事件
+            const collapseBtn = taskDiv.querySelector('.task-collapse-btn');
+            collapseBtn.addEventListener('click', () => this.toggleTaskCollapse(task.id));
+            
+            // 添加到容器
+            tasksContainer.appendChild(taskElement);
+            task.element = tasksContainer.querySelector(`[data-task-id="${task.id}"]`);
+        }
+        
+        // 更新任务进度
+        updateTaskProgress(taskId, progress, status, step) {
+            const task = this.tasks.get(taskId);
+            if (!task || !task.element) return;
+            
+            task.progress = progress;
+            task.status = status;
+            
+            const element = task.element;
+            const progressFill = element.querySelector('.progress-fill');
+            const progressPercentage = element.querySelector('.progress-percentage');
+            const taskStatus = element.querySelector('.task-status');
+            const taskIcon = element.querySelector('.task-icon');
+            const taskTimer = element.querySelector('.task-timer');
+            
+            // 更新进度条
+            if (progressFill) progressFill.style.width = `${progress}%`;
+            if (progressPercentage) progressPercentage.textContent = `${progress}%`;
+            if (taskStatus) taskStatus.textContent = status;
+            
+            // 更新图标
+            if (taskIcon) {
+                if (progress === 100) {
+                    taskIcon.textContent = '✅';
+                } else if (progress > 0) {
+                    taskIcon.textContent = '🔄';
+                } else {
+                    taskIcon.textContent = '⏳';
+                }
+            }
+            
+            // 更新计时器
+            if (taskTimer) {
+                const elapsed = Math.floor((Date.now() - task.startTime) / 1000);
+                const minutes = Math.floor(elapsed / 60);
+                const seconds = elapsed % 60;
+                const timeStr = minutes > 0 ? `${minutes}分${seconds}秒` : `${seconds}秒`;
+                taskTimer.textContent = timeStr;
+            }
+            
+            // 更新步骤指示器
+            this.updateTaskSteps(taskId, step, progress);
+        }
+        
+        // 更新任务步骤指示器
+        updateTaskSteps(taskId, currentStep, progress) {
+            const task = this.tasks.get(taskId);
+            if (!task || !task.element) return;
+            
+            const steps = task.element.querySelectorAll('.step');
+            steps.forEach(step => {
+                step.classList.remove('active', 'completed');
+            });
+            
+            if (progress <= 30) {
+                const uploadStep = task.element.querySelector('[data-step="upload"]');
+                if (uploadStep) uploadStep.classList.add('active');
+            } else if (progress <= 90) {
+                const uploadStep = task.element.querySelector('[data-step="upload"]');
+                const processStep = task.element.querySelector('[data-step="process"]');
+                if (uploadStep) uploadStep.classList.add('completed');
+                if (processStep) processStep.classList.add('active');
+            } else {
+                const uploadStep = task.element.querySelector('[data-step="upload"]');
+                const processStep = task.element.querySelector('[data-step="process"]');
+                const completeStep = task.element.querySelector('[data-step="complete"]');
+                if (uploadStep) uploadStep.classList.add('completed');
+                if (processStep) processStep.classList.add('completed');
+                if (completeStep) completeStep.classList.add('active');
+            }
+        }
+        
+        // 完成任务
+        completeTask(taskId, result) {
+            const task = this.tasks.get(taskId);
+            if (!task) return;
+            
+            task.result = result;
+            task.status = 'completed';
+            this.updateTaskProgress(taskId, 100, '✅ 转写完成', 'complete');
+            
+            // 隐藏结果预览，只显示进度条
+            const resultDiv = task.element.querySelector('.task-result');
+            if (resultDiv) {
+                resultDiv.style.display = 'none';
+            }
+            
+            this.activeUploads--;
+            this.showClearCompletedButton();
+        }
+        
+        // 任务失败
+        failTask(taskId, error) {
+            const task = this.tasks.get(taskId);
+            if (!task) return;
+            
+            task.error = error;
+            task.status = 'failed';
+            this.updateTaskProgress(taskId, 0, `❌ 失败: ${error}`, 'upload');
+            
+            if (task.element) {
+                const taskIcon = task.element.querySelector('.task-icon');
+                if (taskIcon) taskIcon.textContent = '❌';
+            }
+            
+            this.activeUploads--;
+        }
+        
+        // 折叠/展开任务
+        toggleTaskCollapse(taskId) {
+            const task = this.tasks.get(taskId);
+            if (!task || !task.element) return;
+            
+            const content = task.element.querySelector('.task-content');
+            const collapseBtn = task.element.querySelector('.task-collapse-btn');
+            
+            if (content.style.display === 'none') {
+                content.style.display = 'block';
+                collapseBtn.textContent = '−';
+            } else {
+                content.style.display = 'none';
+                collapseBtn.textContent = '+';
+            }
+        }
+        
+        // 显示完整结果
+        showFullResult(taskId) {
+            const task = this.tasks.get(taskId);
+            if (!task || !task.result) return;
+            
+            // 更新主结果区域
+            currentTranscription = task.result.text || '';
+            if (transcriptionContent) {
+                transcriptionContent.textContent = currentTranscription;
+            }
+            if (resultSection) {
+                resultSection.classList.remove('hidden');
+            }
+            
+            // 如果有摘要，显示摘要区域
+            if (task.result.summary) {
+                if (summaryResult) {
+                    summaryResult.innerHTML = `<p>${task.result.summary}</p>`;
+                }
+                if (summarySection) {
+                    summarySection.classList.remove('hidden');
+                }
+            }
+        }
+        
+        // 显示清除已完成按钮
+        showClearCompletedButton() {
+            const completedTasks = Array.from(this.tasks.values()).filter(task => task.status === 'completed' || task.status === 'failed');
+            const clearBtn = document.getElementById('clear-completed-btn');
+            
+            if (clearBtn && completedTasks.length > 0) {
+                clearBtn.style.display = 'block';
+                clearBtn.onclick = () => this.clearCompletedTasks();
+            }
+        }
+        
+        // 清除已完成的任务
+        clearCompletedTasks() {
+            const completedTasks = Array.from(this.tasks.values()).filter(task => task.status === 'completed' || task.status === 'failed');
+            
+            completedTasks.forEach(task => {
+                if (task.element) {
+                    task.element.remove();
+                }
+                this.tasks.delete(task.id);
+            });
+            
+            const clearBtn = document.getElementById('clear-completed-btn');
+            if (clearBtn) {
+                clearBtn.style.display = 'none';
+            }
+            
+            // 如果没有任务了，隐藏任务区域
+            if (this.tasks.size === 0) {
+                const tasksSection = document.getElementById('tasks-section');
+                if (tasksSection) {
+                    tasksSection.classList.add('hidden');
+                }
+            }
+        }
+        
+        // 检查是否可以开始新的上传
+        canStartNewUpload() {
+            return this.activeUploads < this.maxConcurrentUploads;
+        }
+        
+        // 开始上传
+        startUpload(taskId) {
+            this.activeUploads++;
+            this.updateTaskProgress(taskId, 5, '准备上传...', 'upload');
+        }
+        
+        // 缓存token验证结果
+        async getCachedTokenValidation() {
+            // 直接使用全局的validateToken函数，它已经包含了缓存逻辑
+            return await validateToken(true);
+        }
+    }
+    
+    // 创建全局任务管理器实例
+    const taskManager = new TaskManager();
 
     // 标签页切换功能
     tabBtns.forEach(btn => {
@@ -221,7 +504,7 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     }
 
-    // 处理文件上传
+    // 处理文件上传 - 使用TaskManager
     async function handleFileUpload(file) {
         // 验证文件类型
         const allowedTypes = ['audio/mp3', 'audio/wav', 'audio/m4a', 'audio/aac', 'audio/mpeg'];
@@ -236,55 +519,35 @@ document.addEventListener("DOMContentLoaded", () => {
             return;
         }
 
-        // 显示进度区域
-        if (progressSection) {
-            progressSection.classList.remove('hidden');
-        }
-        
-        // 隐藏结果区域
-        if (resultSection) {
-            resultSection.classList.add('hidden');
-        }
-        if (summarySection) {
-            summarySection.classList.add('hidden');
-        }
-
-        // 重置进度和计时器
-        updateProgress(0, '验证登录状态...', 'upload');
-        updateTimer(0);
-        
-        // 验证token有效性
-        const isTokenValid = await validateToken();
-        if (!isTokenValid) {
-            updateProgress(0, '登录已过期，请重新登录');
-            setTimeout(() => {
-                window.location.href = '/login';
-            }, 2000);
+        // 检查是否可以开始新的上传
+        if (!taskManager.canStartNewUpload()) {
+            alert(`当前已有${taskManager.maxConcurrentUploads}个文件在处理中，请等待完成后再上传`);
             return;
         }
-        
-        updateProgress(5, '准备上传...', 'upload');
-        
-        // 开始计时
-        const startTime = Date.now();
-        let timerInterval;
+
+        // 创建新任务
+        const task = taskManager.createTask(file);
 
         try {
+            // 使用缓存的token验证
+            taskManager.updateTaskProgress(task.id, 2, '验证登录状态...', 'upload');
+            const isTokenValid = await taskManager.getCachedTokenValidation();
+            if (!isTokenValid) {
+                taskManager.failTask(task.id, '登录已过期，请重新登录');
+                setTimeout(() => {
+                    window.location.href = '/login';
+                }, 2000);
+                return;
+            }
+
+            // 开始上传
+            taskManager.startUpload(task.id);
+
             const formData = new FormData();
             formData.append('file', file);
-
-            updateProgress(10, '正在上传文件...', 'upload');
             
-            // 启动计时器显示等待时长
-            timerInterval = setInterval(() => {
-                const elapsedSeconds = Math.floor((Date.now() - startTime) / 1000);
-                updateTimer(elapsedSeconds);
-                
-                if (statusDetails) {
-                    statusDetails.innerHTML = `<span style="color: #10B981; font-weight: 500;">🔄 正在处理音频文件...</span>`;
-                }
-            }, 1000);
-
+            taskManager.updateTaskProgress(task.id, 20, '正在上传文件...', 'upload');
+            
             const response = await fetch('/api/voice_log', {
                 method: 'POST',
                 headers: {
@@ -294,8 +557,12 @@ document.addEventListener("DOMContentLoaded", () => {
             });
 
             if (response.status === 401) {
-                // 认证失败，跳转到登录页面
-                window.location.href = '/login';
+                taskManager.failTask(task.id, '认证失败，请重新登录');
+                // 清除缓存的token验证
+                taskManager.tokenValidationCache = null;
+                setTimeout(() => {
+                    window.location.href = '/login';
+                }, 2000);
                 return;
             }
 
@@ -303,179 +570,45 @@ document.addEventListener("DOMContentLoaded", () => {
                 throw new Error(`HTTP error! status: ${response.status}`);
             }
 
-            updateProgress(50, '文件上传完成，正在进行语音识别...', 'process');
-
+            taskManager.updateTaskProgress(task.id, 50, '文件上传完成，正在进行语音识别...', 'process');
+            
             const result = await response.json();
             
-            // 清除计时器
-            if (timerInterval) {
-                clearInterval(timerInterval);
-            }
-            
-            const totalTime = Math.floor((Date.now() - startTime) / 1000);
-            const totalMinutes = Math.floor(totalTime / 60);
-            const totalSeconds = totalTime % 60;
-            const totalTimeStr = totalMinutes > 0 ? `${totalMinutes}分${totalSeconds}秒` : `${totalSeconds}秒`;
-            
-            updateProgress(100, `✅ 转写完成！总用时: ${totalTimeStr}`, 'complete');
-            
-            // 最终更新计时器显示
-            updateTimer(totalTime);
-            
-            // 显示上传成功提示
-            console.log('准备显示成功提示');
-            showSuccessMessage('文件上传成功！语音转录已完成。');
-            console.log('成功提示已调用');
-            
-            // 显示转录结果
-            currentTranscription = result.text || '';
-            if (transcriptionContent) {
-                transcriptionContent.textContent = currentTranscription;
-            }
-            if (resultSection) {
-                resultSection.classList.remove('hidden');
-            }
-
-            // 如果有摘要，显示摘要区域
-            if (result.summary) {
-                if (summaryResult) {
-                    summaryResult.innerHTML = `<p>${result.summary}</p>`;
-                }
-                if (summarySection) {
-                    summarySection.classList.remove('hidden');
+            if (result.success) {
+                taskManager.updateTaskProgress(task.id, 90, '转写完成，正在整理结果...', 'process');
+                
+                // 完成任务 - 修复缓存问题 v1.1
+                taskManager.completeTask(task.id, {
+                    text: result.text || '',
+                    summary: null // 摘要将在后续生成
+                });
+                
+                // 自动生成摘要
+                if (result.text && result.text.trim()) {
+                    generateSummaryForTask(task.id, result.text);
                 }
             } else {
-                // 显示摘要生成按钮
-                if (summarySection) {
-                    summarySection.classList.remove('hidden');
-                }
+                throw new Error(result.error || '转写失败');
             }
-
-            // 显示最终状态
-            if (statusDetails) {
-                statusDetails.innerHTML = `<span style="color: #28a745; font-weight: bold;">✅ 处理完成</span>，总用时: ${totalTimeStr}`;
-            }
-
-            // 隐藏进度区域
-            setTimeout(() => {
-                if (progressSection) {
-                    progressSection.classList.add('hidden');
-                }
-            }, 3000);
 
         } catch (error) {
-            // 清除计时器
-            if (timerInterval) {
-                clearInterval(timerInterval);
-            }
-            
             console.error('上传失败:', error);
-            updateProgress(0, '❌ 处理失败，请重试');
-            
-            // 重置步骤指示器
-            const steps = ['step-upload', 'step-process', 'step-complete'];
-            steps.forEach(stepId => {
-                const step = document.getElementById(stepId);
-                if (step) {
-                    step.classList.remove('active', 'completed');
-                }
-            });
-            
-            if (statusDetails) {
-                statusDetails.innerHTML = `<span style="color: #EF4444; font-weight: 500;">❌ 错误详情: ${error.message}</span>`;
-            }
-            
-            // 3秒后隐藏进度区域
-            setTimeout(() => {
-                if (progressSection) {
-                    progressSection.classList.add('hidden');
-                }
-            }, 3000);
+            taskManager.failTask(task.id, error.message);
         }
     }
 
     // 更新进度显示
-    function updateProgress(percent, message, step = null) {
-        if (progressFill) {
-            progressFill.style.width = `${percent}%`;
-        }
-        if (progressText) {
-            progressText.textContent = message;
-        }
-        
-        // 更新百分比显示
-        const progressPercentage = document.getElementById('progress-percentage');
-        if (progressPercentage) {
-            progressPercentage.textContent = `${percent}%`;
-        }
-        
-        // 更新步骤指示器
-        updateProgressSteps(step, percent);
-    }
-    
-    // 更新步骤指示器
-    function updateProgressSteps(currentStep, percent) {
-        const steps = {
-            'upload': document.getElementById('step-upload'),
-            'process': document.getElementById('step-process'),
-            'complete': document.getElementById('step-complete')
-        };
-        
-        // 重置所有步骤状态
-        Object.values(steps).forEach(step => {
-            if (step) {
-                step.classList.remove('active', 'completed');
-            }
-        });
-        
-        // 根据进度设置步骤状态
-        if (percent <= 30) {
-            // 上传阶段
-            if (steps.upload) {
-                steps.upload.classList.add('active');
-            }
-        } else if (percent <= 90) {
-            // 处理阶段
-            if (steps.upload) {
-                steps.upload.classList.add('completed');
-            }
-            if (steps.process) {
-                steps.process.classList.add('active');
-            }
-        } else {
-            // 完成阶段
-            if (steps.upload) {
-                steps.upload.classList.add('completed');
-            }
-            if (steps.process) {
-                steps.process.classList.add('completed');
-            }
-            if (steps.complete) {
-                steps.complete.classList.add('active');
-            }
-        }
-        
-        // 如果指定了特定步骤，覆盖自动判断
-        if (currentStep && steps[currentStep]) {
-            Object.values(steps).forEach(step => {
-                if (step) {
-                    step.classList.remove('active');
-                }
-            });
-            steps[currentStep].classList.add('active');
+    // 兼容原有的updateProgress函数（用于向后兼容）
+    function updateProgress(percent, message, step = null, taskId = null) {
+        // 使用TaskManager更新任务进度
+        if (taskId && window.taskManager) {
+            window.taskManager.updateTaskProgress(taskId, percent, message, step);
         }
     }
     
-    // 更新等待时间显示
-    function updateTimer(elapsedSeconds) {
-        const timerValue = document.getElementById('timer-value');
-        if (timerValue) {
-            const minutes = Math.floor(elapsedSeconds / 60);
-            const seconds = elapsedSeconds % 60;
-            const timeStr = minutes > 0 ? `${minutes}分${seconds}秒` : `${seconds}秒`;
-            timerValue.textContent = timeStr;
-        }
-    }
+    // updateProgressSteps函数已删除，现在使用TaskManager管理步骤状态
+    
+    // updateTimer函数已删除，现在使用TaskManager管理计时器
 
     // 显示成功提示消息
     function showSuccessMessage(message) {
@@ -570,172 +703,113 @@ document.addEventListener("DOMContentLoaded", () => {
         }, 3000);
     }
 
-    // 生成摘要功能
-    if (generateSummaryBtn) {
-        generateSummaryBtn.addEventListener('click', async () => {
-            if (!currentTranscription) {
-                alert('请先上传音频文件进行转录');
+    // 为特定任务生成摘要
+    async function generateSummaryForTask(taskId, text) {
+        if (!text || text.trim() === '') {
+            return;
+        }
+        
+        const task = taskManager.tasks.get(taskId);
+        if (!task) return;
+        
+        try {
+            taskManager.updateTaskProgress(taskId, 95, '正在生成摘要...', 'process');
+            
+            const response = await fetch('/api/summary', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${getAuthToken()}`
+                },
+                body: JSON.stringify({ text: text })
+            });
+            
+            if (response.status === 401) {
+                // 不影响主任务，只是摘要失败
+                console.warn('摘要生成时认证失败');
                 return;
             }
-
-            const summaryTypeValue = summaryType ? summaryType.value : 'day_report';
             
-            generateSummaryBtn.disabled = true;
-            generateSummaryBtn.textContent = '生成中...';
-
-            try {
-                const response = await fetch('/api/summary', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${getAuthToken()}`
-                    },
-                    body: JSON.stringify({
-                        text: currentTranscription,
-                        summary_type: summaryTypeValue
-                    })
-                });
-
-                if (response.status === 401) {
-                    // 认证失败，跳转到登录页面
-                    window.location.href = '/login';
-                    return;
-                }
-
-                if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
-                }
-
-                const result = await response.json();
+            if (!response.ok) {
+                console.warn(`摘要生成失败: HTTP ${response.status}`);
+                return;
+            }
+            
+            const result = await response.json();
+            
+            if (result.success && result.summary) {
+                // 更新任务结果
+                task.result.summary = result.summary;
                 
+                // 更新任务显示
+                const resultDiv = task.element.querySelector('.task-result');
+                const resultPreview = task.element.querySelector('.result-preview');
+                if (resultDiv && resultPreview) {
+                    const preview = text.length > 100 ? text.substring(0, 100) + '...' : text;
+                    resultPreview.textContent = `${preview}\n\n摘要: ${result.summary.substring(0, 50)}...`;
+                }
+            }
+        } catch (error) {
+            console.error('Summary generation error for task:', taskId, error);
+            // 摘要失败不影响主任务
+        }
+    }
+    
+    // 生成摘要 - 兼容原有功能
+    async function generateSummary(text) {
+        if (!text || text.trim() === '') {
+            alert('没有可用的转录文本来生成摘要');
+            return;
+        }
+        
+        if (summaryButton) {
+            summaryButton.disabled = true;
+            summaryButton.textContent = '生成中...';
+        }
+        
+        try {
+            const response = await fetch('/api/summary', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${getAuthToken()}`
+                },
+                body: JSON.stringify({ text: text })
+            });
+            
+            if (response.status === 401) {
+                window.location.href = '/login';
+                return;
+            }
+            
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            
+            const result = await response.json();
+            
+            if (result.success && result.summary) {
                 if (summaryResult) {
                     summaryResult.innerHTML = `<p>${result.summary}</p>`;
                 }
-
-            } catch (error) {
-                console.error('摘要生成失败:', error);
-                if (summaryResult) {
-                    summaryResult.innerHTML = `<p style="color: red;">摘要生成失败: ${error.message}</p>`;
+                if (summarySection) {
+                    summarySection.classList.remove('hidden');
                 }
-            } finally {
-                generateSummaryBtn.disabled = false;
-                generateSummaryBtn.textContent = '生成摘要';
-            }
-        });
-    }
-
-    // 录音功能
-    if (recordButton) {
-        recordButton.addEventListener("click", async () => {
-        if (!isRecording) {
-            try {
-                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                mediaRecorder = new MediaRecorder(stream);
-                mediaRecorder.start();
-                isRecording = true;
-                recordButton.textContent = "停止录音";
-                recordButton.classList.add("recording");
-                if (statusDiv) statusDiv.textContent = "录音中...";
-                audioChunks = [];
-
-                mediaRecorder.addEventListener("dataavailable", event => {
-                    audioChunks.push(event.data);
-                });
-
-                mediaRecorder.addEventListener("stop", async () => {
-                    const audioBlob = new Blob(audioChunks, { type: "audio/wav" });
-                    await uploadAudio(audioBlob);
-                    isRecording = false;
-                recordButton.textContent = "开始录音";
-                recordButton.classList.remove("recording");
-                if (statusDiv) statusDiv.textContent = "录音完成，等待处理结果...";
-                });
-
-            } catch (error) {
-                console.error("录音失败:", error);
-                if (statusDiv) statusDiv.textContent = "错误：无法获取麦克风权限。请检查浏览器设置。";
-            }
-        } else {
-            mediaRecorder.stop();
-        }
-        });
-    }
-
-    // 上传音频文件
-    async function uploadAudio(audioBlob) {
-        const formData = new FormData();
-        formData.append("file", audioBlob, "recording.wav");
-
-        try {
-            const response = await fetch("/api/voice_log", {
-                method: "POST",
-                headers: {
-                    'Authorization': `Bearer ${getAuthToken()}`
-                },
-                body: formData,
-            });
-
-            if (response.status === 401) {
-                // 认证失败，跳转到登录页面
-                window.location.href = '/login';
-                return;
-            }
-
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
-
-            const data = await response.json();
-            if (statusDiv) statusDiv.textContent = "处理完成！";
-            if (resultDiv) resultDiv.innerHTML = `<strong>识别内容:</strong><p>${data.text}</p>`;
-            if (summaryDiv) summaryDiv.innerHTML = `<strong>智能摘要:</strong><p>${data.summary}</p>`;
-
-        } catch (error) {
-            console.error("上传失败:", error);
-            if (statusDiv) statusDiv.textContent = "错误：上传或处理失败。";
-            if (resultDiv) resultDiv.textContent = "";
-            if (summaryDiv) summaryDiv.textContent = "";
-        }
-    }
-
-    // 智能查询功能
-    if (queryButton) {
-        queryButton.addEventListener("click", async () => {
-        const query = queryInput ? queryInput.value : '';
-        if (!query) {
-            if (queryResultDiv) queryResultDiv.textContent = "请输入查询内容。";
-            return;
-        }
-
-        try {
-            if (queryResultDiv) queryResultDiv.textContent = "查询中...";
-            const response = await fetch(`/api/query?query=${encodeURIComponent(query)}`, {
-                headers: {
-                    'Authorization': `Bearer ${getAuthToken()}`
-                }
-            });
-
-            if (response.status === 401) {
-                // 认证失败，跳转到登录页面
-                window.location.href = '/login';
-                return;
-            }
-
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
-
-            const data = await response.json();
-            if (data.answer) {
-                if (queryResultDiv) queryResultDiv.innerHTML = `<strong>查询结果:</strong><p>${data.answer}</p>`;
             } else {
-                if (queryResultDiv) queryResultDiv.textContent = "未找到相关信息。";
+                throw new Error(result.error || '摘要生成失败');
             }
-
         } catch (error) {
-            console.error("查询失败:", error);
-            if (queryResultDiv) queryResultDiv.textContent = "错误：查询失败。";
+            console.error('Summary generation error:', error);
+            alert(`摘要生成失败: ${error.message}`);
+        } finally {
+            if (summaryButton) {
+                summaryButton.disabled = false;
+                summaryButton.textContent = '生成摘要';
+            }
         }
-        });
     }
+
+    // 摘要功能现在由TaskManager自动处理，无需手动触发
+
+    // 录音和查询功能已移除，当前版本专注于文件上传功能
 });

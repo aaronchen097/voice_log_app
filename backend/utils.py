@@ -52,13 +52,17 @@ def check_file_exists_in_oss(bucket: oss2.Bucket, object_name: str) -> bool:
     Returns:
         bool: 文件是否存在
     """
+    import logging
+    logger = logging.getLogger(__name__)
+    
     try:
         bucket.get_object_meta(object_name)
         return True
     except oss2.exceptions.NoSuchKey:
+        # 文件不存在是正常情况，不需要记录错误日志
         return False
     except Exception as e:
-        print(f"检查文件是否存在时发生错误: {str(e)}")
+        logger.error(f"检查OSS文件是否存在时发生错误: {str(e)}")
         return False
 
 
@@ -106,11 +110,16 @@ def upload_file_to_oss(file_path: str) -> Optional[str]:
             return bucket.sign_url('GET', object_name, 24 * 3600)
             
         # 显示上传进度的回调函数
+        last_rate = [0]  # 使用列表来存储上次的进度，避免闭包问题
         def percentage(consumed_bytes, total_bytes):
-            if total_bytes:
+            if total_bytes and total_bytes > 0:
                 rate = int(100 * (float(consumed_bytes) / float(total_bytes)))
-                if rate % 20 == 0:  # 每20%记录一次日志
+                # 每增加10%或达到100%时记录日志，避免重复记录相同进度
+                if rate > last_rate[0] and (rate % 10 == 0 or rate == 100):
                     logger.info(f'{file_name} 上传进度: {rate}%')
+                    last_rate[0] = rate
+            else:
+                logger.info(f'{file_name} 上传进度: 处理中...')
         
         # 文件不存在，执行上传
         logger.info(f"开始上传文件 {file_name} 到OSS...")
@@ -365,7 +374,7 @@ def transcribe_audio(file_path: str) -> Optional[str]:
             
         # 3. 轮询任务结果
         max_retries = 30  # 最大轮询次数
-        retry_interval = 10  # 轮询间隔（秒）
+        retry_interval = 120  # 轮询间隔（秒）- 修改为2分钟
         
         for i in range(max_retries):
             logger.info(f"第 {i+1}/{max_retries} 次查询任务状态: {task_id}")

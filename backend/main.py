@@ -191,6 +191,7 @@ async def create_voice_log(file: UploadFile = File(...), current_user: UserSessi
 
         return JSONResponse(
             content={
+                "success": True,
                 "text": text, 
                 "summary": summary, 
                 "filename": log_filename,
@@ -201,7 +202,7 @@ async def create_voice_log(file: UploadFile = File(...), current_user: UserSessi
         logging.error(f"用户 {current_user.username if 'current_user' in locals() else 'unknown'} 上传过程发生错误: {str(e)}")
         import traceback
         traceback.print_exc()
-        return JSONResponse(content={"error": str(e)}, status_code=500)
+        return JSONResponse(content={"success": False, "error": str(e)}, status_code=500)
 
 
 @app.get("/api/query", summary="根据问题查询相关日志")
@@ -294,27 +295,17 @@ async def logout(session_id: str = Form(...)):
 
 
 @app.get("/api/user/info", summary="获取用户信息")
-async def get_user_info(session_id: str = Query(...)):
+async def get_user_info(current_user: UserSession = Depends(get_current_user)):
     """获取当前登录用户信息"""
     try:
-        if session_id in user_sessions:
-            user_session = user_sessions[session_id]
-            return JSONResponse({
-                "success": True,
-                "user": {
-                    "username": user_session.username,
-                    "user_id": user_session.user_id,
-                    "login_time": user_session.login_time
-                }
-            })
-        else:
-            return JSONResponse(
-                status_code=401,
-                content={
-                    "success": False,
-                    "message": "用户未登录或会话已过期"
-                }
-            )
+        return JSONResponse({
+            "success": True,
+            "user": {
+                "username": current_user.username,
+                "user_id": current_user.user_id,
+                "login_time": current_user.login_time
+            }
+        })
     except Exception as e:
         logging.error(f"获取用户信息失败: {str(e)}")
         raise HTTPException(status_code=500, detail=f"获取用户信息失败: {str(e)}")
@@ -347,18 +338,18 @@ async def generate_summary_endpoint(request: SummaryRequest):
         return JSONResponse(content={"error": str(e)}, status_code=500)
 
 # 挂载静态文件目录
-app.mount("/static", StaticFiles(directory="./frontend"), name="static")
-app.mount("/frontend", StaticFiles(directory="./frontend"), name="frontend")
+app.mount("/static", StaticFiles(directory="../frontend"), name="static")
+app.mount("/frontend", StaticFiles(directory="../frontend"), name="frontend")
 
 # 将根路径指向 index.html
 @app.get("/", include_in_schema=False)
 async def read_index():
-    return FileResponse('./frontend/index.html')
+    return FileResponse('../frontend/index.html')
 
 @app.get("/login", include_in_schema=False)
 async def login_page():
     """返回登录页面"""
-    return FileResponse("./frontend/login.html")
+    return FileResponse('../frontend/login.html')
 
 if __name__ == "__main__":
     import uvicorn
