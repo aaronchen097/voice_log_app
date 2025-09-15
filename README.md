@@ -9,8 +9,10 @@
 - 🎵 **多种音频格式支持**: 可上传 `.wav`, `.mp3`, `.m4a`, `.flac`, `.aac`, `.ogg` 等多种格式的音频文件。
 - 🔊 **高精度语音转录**: 利用阿里云语音识别服务，确保高准确率的文本转换。
 - 🤖 **AI智能摘要**: 集成通义千问（qwen-plus）模型，自动生成会议纪要、内容摘要等。
+- 🧠 **个人能力评估**: 基于语音内容智能分析个人能力特征，提供专业的能力评估报告。
 - 📊 **实时任务跟踪**: 在Web界面上实时查看音频处理、转录和摘要生成的任务状态。
 - 🔐 **飞书OAuth认证**: 支持飞书账号登录，提供安全的用户认证和授权机制。
+- 📋 **飞书多维表格集成**: 自动将语音日志保存到飞书多维表格，支持人员字段的多种格式（字符串、对象数组）。
 - 🌐 **简洁Web界面**: 提供一个干净、直观的前端界面，方便用户上传和查看结果。
 - 📚 **完整的API文档**: 通过Swagger UI和ReDoc提供交互式的API文档。
 
@@ -19,7 +21,7 @@
 - **后端**: Python 3.11, FastAPI
 - **语音识别**: 阿里云实时语音识别服务
 - **AI模型**: 阿里云通义千问（qwen-plus）
-- **云存储**: 阿里云对象存储（OSS）
+- **云存储**: 阿里云对象存储（OSS）- 支持传输加速和断点续传
 - **容器化**: Docker, Docker Compose
 
 ## 项目结构
@@ -81,8 +83,19 @@
     ALIBABA_CLOUD_ACCESS_KEY_ID="YOUR_ACCESS_KEY_ID"
     ALIBABA_CLOUD_ACCESS_KEY_SECRET="YOUR_ACCESS_KEY_SECRET"
     APPKEY="YOUR_APPKEY"
+    
+    # OSS配置
     OSS_ENDPOINT="YOUR_OSS_ENDPOINT"
     OSS_BUCKET_NAME="YOUR_OSS_BUCKET_NAME"
+    # OSS传输加速配置（可选，启用后可提升传输速度）
+    OSS_TRANSFER_ACCELERATION_ENABLED=false
+    OSS_ACCELERATE_ENDPOINT="YOUR_ACCELERATE_ENDPOINT"
+    # OSS分片上传配置（可选）
+    OSS_MULTIPART_THRESHOLD=100MB
+    OSS_PART_SIZE=10MB
+    OSS_MAX_CONCURRENCY=3
+    
+    # AI服务配置
     DASHSCOPE_API_KEY="YOUR_DASHSCOPE_API_KEY"
     
     # 飞书OAuth配置
@@ -124,6 +137,32 @@
 
 通过前端界面，您可以上传音频文件，并查看转录和摘要的结果。
 
+### OSS传输优化功能
+
+本系统集成了阿里云OSS传输优化功能，包括：
+
+- **传输加速**: 启用OSS传输加速可显著提升文件上传和下载速度，特别适用于跨地域访问
+- **分片上传**: 大文件自动采用分片上传，提升上传稳定性和速度
+- **断点续传**: 支持上传和下载的断点续传，网络中断后可自动恢复
+- **智能重试**: 自动重试机制，提升传输成功率
+
+#### 启用传输加速
+
+1. 在阿里云OSS控制台为您的Bucket开启传输加速功能
+2. 在 `.env` 文件中配置：
+   ```
+   OSS_TRANSFER_ACCELERATION_ENABLED=true
+   OSS_ACCELERATE_ENDPOINT=your-bucket.oss-accelerate.aliyuncs.com
+   ```
+3. 重启服务即可生效
+
+#### 分片上传配置
+
+可通过环境变量调整分片上传参数：
+- `OSS_MULTIPART_THRESHOLD`: 启用分片上传的文件大小阈值（默认100MB）
+- `OSS_PART_SIZE`: 每个分片的大小（默认10MB）
+- `OSS_MAX_CONCURRENCY`: 最大并发上传数（默认3）
+
 ## 飞书OAuth认证配置
 
 本系统支持飞书OAuth认证，用户可以使用飞书账号登录系统。要启用此功能，需要进行以下配置：
@@ -159,6 +198,65 @@ FEISHU_REDIRECT_URI="http://localhost:8000/auth/callback"  # OAuth回调地址
 - `GET /auth/login` - 发起OAuth登录
 - `GET /auth/callback` - OAuth回调处理
 - `GET /auth/status` - 检查认证状态
+
+## 飞书多维表格集成
+
+本系统集成了飞书多维表格功能，可以自动将语音日志保存到指定的飞书多维表格中，方便团队协作和数据管理。
+
+### 功能特性
+
+- **自动保存**: 语音转录和AI摘要完成后，自动保存到飞书多维表格
+- **智能字段映射**: 支持多种字段类型，包括文本、人员、日期等
+- **人员字段支持**: 支持多种人员字段格式，包括字符串ID和对象数组格式
+- **错误处理**: 完善的错误处理机制，确保数据保存的可靠性
+
+### 配置说明
+
+在 `.env` 文件中添加以下配置：
+
+```bash
+# 飞书多维表格配置
+FEISHU_TABLE_ID="your_table_id"          # 多维表格ID
+FEISHU_APP_TOKEN="your_app_token"        # 应用Token
+```
+
+### 人员字段格式支持
+
+系统支持以下人员字段格式：
+
+1. **字符串格式**（推荐）:
+   ```json
+   "人员": "ou_xxxxxxxxxxxxxxxxx"
+   ```
+
+2. **对象数组格式**:
+   ```json
+   "人员": [
+     {
+       "id": "ou_xxxxxxxxxxxxxxxxx",
+       "type": "user_id"
+     }
+   ]
+   ```
+
+3. **字符串数组格式**:
+   ```json
+   "人员": ["ou_xxxxxxxxxxxxxxxxx"]
+   ```
+
+系统会自动检测并转换为飞书API要求的正确格式。
+
+### 支持的字段类型
+
+- **文本字段**: 语音转录结果、AI摘要、个人能力评估等
+- **人员字段**: 自动关联当前用户
+- **日期字段**: 记录创建时间
+- **数字字段**: 音频时长等数值信息
+
+### API接口
+
+- `POST /save_voice_log` - 保存语音日志到飞书多维表格
+- `GET /feishu/fields` - 获取表格字段信息（调试用）
 
 ##  Frontend
 

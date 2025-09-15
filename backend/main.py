@@ -11,6 +11,7 @@ from dotenv import load_dotenv
 from utils import (
     transcribe_audio,
     get_summary,
+    generate_capability_assessment,
     load_and_index_logs,
     query_logs,
     get_latest_log_summary,
@@ -160,16 +161,20 @@ async def create_voice_log(file: UploadFile = File(...), current_user: UserSessi
 
         # 2. 生成摘要
         summary = get_summary(text)
+        
+        # 3. 生成个人能力评估
+        capability_assessment = generate_capability_assessment(text, f"用户: {current_user.username}")
 
-        # 3. 保存到飞书多维表格
+        # 4. 保存到飞书多维表格
         feishu_save_success = save_voice_log(
             content=summary,  # 日志内容字段存储AI智能摘要
             user_id=current_user.user_id,
             transcription=text,
-            summary=summary
+            summary=summary,
+            capability_assessment=capability_assessment
         )
 
-        # 4. 保存本地日志
+        # 5. 保存本地日志
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         log_filename = f"log_{timestamp}.md"
         log_filepath = os.path.join(LOG_DIR, log_filename)
@@ -181,7 +186,7 @@ async def create_voice_log(file: UploadFile = File(...), current_user: UserSessi
             f.write(f"## 识别内容\n\n")
             f.write(f"{text}\n")
 
-        # 5. 更新全局索引
+        # 6. 更新全局索引
         global index, documents
         new_index, new_documents = load_and_index_logs()
         index = new_index
@@ -193,7 +198,8 @@ async def create_voice_log(file: UploadFile = File(...), current_user: UserSessi
             content={
                 "success": True,
                 "text": text, 
-                "summary": summary, 
+                "summary": summary,
+                "capability_assessment": capability_assessment,
                 "filename": log_filename,
                 "saved_to_feishu": feishu_save_success
             }
@@ -318,6 +324,9 @@ class SummaryRequest(BaseModel):
     summary_type: str = "day_report"
     model: str = "qwen-plus"
 
+class CapabilityAssessmentRequest(BaseModel):
+    text: str
+
 class LoginRequest(BaseModel):
     username: str
     password: str
@@ -336,6 +345,23 @@ async def generate_summary_endpoint(request: SummaryRequest):
         import traceback
         traceback.print_exc()
         return JSONResponse(content={"error": str(e)}, status_code=500)
+
+@app.post("/api/capability_assessment", summary="生成个人能力评估")
+async def generate_capability_assessment_endpoint(request: CapabilityAssessmentRequest):
+    try:
+        if not request.text or request.text.strip() == "":
+            raise HTTPException(status_code=400, detail="文本内容不能为空")
+        
+        capability_assessment = generate_capability_assessment(request.text)
+        return JSONResponse(content={
+            "success": True,
+            "capability_assessment": capability_assessment
+        })
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"个人能力评估生成失败: {e}")
+        raise HTTPException(status_code=500, detail="个人能力评估生成失败")
 
 # 挂载静态文件目录
 app.mount("/static", StaticFiles(directory="../frontend"), name="static")

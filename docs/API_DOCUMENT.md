@@ -16,11 +16,12 @@ The base URL for all API endpoints is the root of the application.
 - **Request Body**:
   - `file`: The audio file to be uploaded (multipart/form-data).
 - **Responses**:
-  - `200 OK`: Returns a JSON object with the transcription, summary, and filename.
+  - `200 OK`: Returns a JSON object with the transcription, summary, capability assessment, and filename.
     ```json
     {
       "text": "The transcribed text...",
       "summary": "The AI-generated summary...",
+      "capability_assessment": "The AI-generated personal capability assessment...",
       "filename": "log_20231027_103000.md"
     }
     ```
@@ -85,7 +86,30 @@ The base URL for all API endpoints is the root of the application.
     ```
   - `500 Internal Server Error`: If an error occurs during summary generation.
 
-### 5. Frontend
+### 5. Generate Personal Capability Assessment
+
+- **Endpoint**: `/api/capability_assessment`
+- **Method**: `POST`
+- **Description**: Generates an AI-powered personal capability assessment based on the provided text content.
+- **Request Body**:
+  ```json
+  {
+    "text": "The text content to analyze for capability assessment..."
+  }
+  ```
+  - `text` (string, required): The text content to analyze for personal capabilities.
+- **Responses**:
+  - `200 OK`: Returns a JSON object with the generated capability assessment.
+    ```json
+    {
+      "success": true,
+      "capability_assessment": "Based on the analysis of your speech content, here are the key capability insights..."
+    }
+    ```
+  - `400 Bad Request`: If the text parameter is missing or empty.
+  - `500 Internal Server Error`: If an error occurs during assessment generation.
+
+### 6. Frontend
 
 - **Endpoint**: `/`
 - **Method**: `GET`
@@ -95,9 +119,9 @@ The base URL for all API endpoints is the root of the application.
 - **Method**: `GET`
 - **Description**: Serves static files (CSS, JavaScript, etc.) from the `static` directory. Falls back to the `frontend` directory for backward compatibility.
 
-### 6. OAuth Authentication
+### 7. OAuth Authentication
 
-#### 6.1 Initiate OAuth Login
+#### 7.1 Initiate OAuth Login
 
 - **Endpoint**: `/auth/login`
 - **Method**: `GET`
@@ -106,7 +130,7 @@ The base URL for all API endpoints is the root of the application.
   - `307 Temporary Redirect`: Redirects to Feishu OAuth authorization URL.
   - `500 Internal Server Error`: If OAuth configuration is missing or invalid.
 
-#### 6.2 OAuth Callback
+#### 7.2 OAuth Callback
 
 - **Endpoint**: `/auth/callback`
 - **Method**: `GET`
@@ -130,7 +154,7 @@ The base URL for all API endpoints is the root of the application.
   - `400 Bad Request`: If required parameters are missing or invalid.
   - `500 Internal Server Error`: If token exchange fails.
 
-#### 6.3 Check Authentication Status
+#### 7.3 Check Authentication Status
 
 - **Endpoint**: `/auth/status`
 - **Method**: `GET`
@@ -157,7 +181,7 @@ The base URL for all API endpoints is the root of the application.
     }
     ```
 
-### 7. Traditional Login
+### 8. Traditional Login
 
 - **Endpoint**: `/api/login`
 - **Method**: `POST`

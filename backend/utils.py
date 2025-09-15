@@ -11,6 +11,7 @@ from aliyunsdkcore.request import CommonRequest
 from aliyunsdkcore.auth.credentials import AccessKeyCredential
 import dashscope
 from dashscope import Generation
+from oss_optimizer import get_oss_optimizer, upload_file_to_oss_optimized
 
 # 日志目录常量
 LOG_DIR = "logs"
@@ -66,13 +67,14 @@ def check_file_exists_in_oss(bucket: oss2.Bucket, object_name: str) -> bool:
         return False
 
 
-def upload_file_to_oss(file_path: str) -> Optional[str]:
+def upload_file_to_oss(file_path: str, use_optimized: bool = True) -> Optional[str]:
     """
     将本地文件上传到OSS并返回可访问的URL
     如果文件已存在，直接返回URL
     
     Args:
         file_path (str): 本地文件路径
+        use_optimized (bool): 是否使用优化版本（支持传输加速和断点续传）
     
     Returns:
         str: 文件在OSS上的访问URL，失败时返回None
@@ -80,6 +82,18 @@ def upload_file_to_oss(file_path: str) -> Optional[str]:
     import logging
     logger = logging.getLogger(__name__)
     
+    # 优先使用优化版本
+    if use_optimized:
+        try:
+            result = upload_file_to_oss_optimized(file_path)
+            if result:
+                return result
+            else:
+                logger.warning("优化版本上传失败，回退到原始版本")
+        except Exception as e:
+            logger.warning(f"优化版本上传异常，回退到原始版本: {str(e)}")
+    
+    # 原始版本作为备用方案
     try:
         # 获取环境变量
         access_key_id = os.getenv('ALIBABA_CLOUD_ACCESS_KEY_ID')
@@ -91,7 +105,7 @@ def upload_file_to_oss(file_path: str) -> Optional[str]:
             logger.error("缺少必要的OSS配置环境变量")
             return None
         
-        logger.info(f"开始处理文件上传: {file_path}")
+        logger.info(f"开始处理文件上传（原始版本）: {file_path}")
         
         # 创建 Bucket 实例
         auth = oss2.Auth(access_key_id, access_key_secret)
@@ -698,3 +712,95 @@ def get_latest_log_summary(limit: int = 5) -> str:
             summary_parts.append(f"   摘要: {log['summary'][:100]}...")
     
     return "\n".join(summary_parts)
+
+
+def generate_capability_assessment(text: str, user_context: str = "") -> str:
+    """
+    基于用户的语音日志内容生成个人能力评估
+    
+    Args:
+        text (str): 要分析的文本内容
+        user_context (str): 用户上下文信息（可选）
+    
+    Returns:
+        str: 生成的个人能力评估文本
+    """
+    from http import HTTPStatus
+    import time
+    
+    dashscope_api_key = os.getenv("DASHSCOPE_API_KEY")
+    if not dashscope_api_key:
+        return f"个人能力评估（基于{len(text)}字符内容）: 暂无AI分析，请配置DASHSCOPE_API_KEY"
+    
+    # 重试机制
+    max_retries = 3
+    retry_delay = 1  # 秒
+    
+    for attempt in range(max_retries):
+        try:
+            # 使用原生dashscope库
+            dashscope.api_key = dashscope_api_key
+            
+            # 个人能力评估的专用提示词
+            capability_prompt = """
+你是一位专业的人力资源分析师和职业发展顾问。请基于以下用户的工作日志内容，从多个维度分析其个人能力表现，并提供建设性的评估和建议。
+
+请从以下几个维度进行分析：
+1. **专业技能**: 技术能力、专业知识掌握程度
+2. **沟通协作**: 团队合作、沟通表达能力
+3. **问题解决**: 分析问题、解决问题的能力
+4. **学习成长**: 学习新知识、适应变化的能力
+5. **执行力**: 任务完成效率、目标达成情况
+6. **创新思维**: 创新意识、改进优化能力
+
+评估格式要求：
+- 每个维度给出具体的表现描述和评分（1-5分）
+- 指出优势和待改进的地方
+- 提供具体的改进建议
+- 总体评估不超过300字
+
+请基于以下内容进行分析：
+"""
+            
+            full_prompt = f"{capability_prompt}\n\n{text}"
+            if user_context:
+                full_prompt += f"\n\n用户背景信息：{user_context}"
+            
+            response = dashscope.Generation.call(
+                model="qwen-plus",
+                prompt=full_prompt,
+                max_tokens=800,  # 适当增加token数以支持详细评估
+                temperature=0.7,  # 适中的创造性
+                top_p=0.8
+            )
+            
+            if response.status_code == HTTPStatus.OK:
+                capability_assessment = response.output.text.strip()
+                if capability_assessment:
+                    return capability_assessment
+                else:
+                    return f"个人能力评估生成失败: 返回内容为空，原文长度: {len(text)}字符"
+            else:
+                error_msg = f"API调用失败，状态码: {response.status_code}"
+                if hasattr(response, 'message'):
+                    error_msg += f"，错误信息: {response.message}"
+                
+                if attempt < max_retries - 1:
+                    print(f"第{attempt + 1}次尝试失败，{retry_delay}秒后重试: {error_msg}")
+                    time.sleep(retry_delay)
+                    retry_delay *= 2  # 指数退避
+                    continue
+                else:
+                    return f"个人能力评估生成失败: {error_msg}，原文长度: {len(text)}字符"
+            
+        except Exception as e:
+            error_msg = str(e)
+            if attempt < max_retries - 1:
+                print(f"第{attempt + 1}次尝试异常，{retry_delay}秒后重试: {error_msg}")
+                time.sleep(retry_delay)
+                retry_delay *= 2  # 指数退避
+                continue
+            else:
+                return f"个人能力评估生成失败: {error_msg}，原文长度: {len(text)}字符"
+    
+    return f"个人能力评估生成失败: 重试{max_retries}次后仍然失败，原文长度: {len(text)}字符"

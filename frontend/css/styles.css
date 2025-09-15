@@ -903,3 +903,78 @@ button:disabled::before, .btn-primary:disabled::before {
     color: var(--muted-text-color);
     border-top: 1px solid var(--border-color);
 }
+
+/* 个人能力评估样式 */
+.capability-section {
+    background: var(--surface-color);
+    border-radius: 16px;
+    padding: 2rem;
+    margin-bottom: 2rem;
+    border: 1px solid var(--border-color);
+    box-shadow: var(--shadow-md);
+}
+
+.capability-section h3 {
+    color: var(--primary-color);
+    margin: 0 0 1rem 0;
+    font-size: 1.25rem;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.capability-section h3::before {
+    content: "🧠";
+    font-size: 1.2em;
+}
+
+.capability-result {
+    background-color: var(--surface-light);
+    padding: 1.5rem;
+    border-radius: 12px;
+    border: 1px solid var(--border-light);
+    position: relative;
+}
+
+.capability-content {
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    margin: 0;
+    line-height: 1.6;
+    color: var(--text-color);
+    font-size: 0.95rem;
+}
+
+.copy-capability-btn {
+    position: absolute;
+    top: 1rem;
+    right: 1rem;
+    background: var(--primary-color);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    padding: 0.5rem 1rem;
+    cursor: pointer;
+    font-size: 0.875rem;
+    font-weight: 500;
+    transition: all var(--transition-fast) ease;
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+}
+
+.copy-capability-btn:hover {
+    background: var(--primary-hover);
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-md);
+}
+
+.copy-capability-btn:active {
+    transform: translateY(0);
+}
+
+.copy-capability-btn::before {
+    content: "📋";
+    font-size: 0.9em;
+}

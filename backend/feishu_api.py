@@ -225,10 +225,23 @@ class FeishuBitableClient:
             fields = {}
             for field_name, value in record_data.items():
                 # 根据字段类型对数据进行格式化
-                if field_name == "人员" and isinstance(value, str):
-                    # 人员字段需要构造成 [{ "id": "ou_xxx" }] 的形式
-                    fields[field_name] = [{"id": value}]
-                elif field_name in ["账号", "密码", "日志内容"] and isinstance(value, str):
+                if field_name == "人员":
+                    if isinstance(value, str):
+                        # 如果是字符串，转换为正确的对象数组格式
+                        fields[field_name] = [{"id": value, "type": "user"}]
+                    elif isinstance(value, list):
+                        # 如果已经是列表，检查格式是否正确
+                        if value and isinstance(value[0], dict) and "id" in value[0]:
+                            # 已经是正确格式，直接使用
+                            fields[field_name] = value
+                        elif value and isinstance(value[0], str):
+                            # 如果是字符串数组，转换为对象数组
+                            fields[field_name] = [{"id": user_id, "type": "user"} for user_id in value]
+                        else:
+                            fields[field_name] = value
+                    else:
+                        fields[field_name] = value
+                elif field_name in ["账号", "密码", "日志内容", "语音转录结果", "个人能力评估"] and isinstance(value, str):
                     # 文本字段可以直接使用字符串
                     fields[field_name] = value
                 else:
@@ -341,7 +354,8 @@ class FeishuBitableClient:
         content: str, 
         user_id: str, 
         transcription: Optional[str] = None,
-        summary: Optional[str] = None
+        summary: Optional[str] = None,
+        capability_assessment: Optional[str] = None
     ) -> bool:
         """
         保存语音日志到多维表格
@@ -350,6 +364,7 @@ class FeishuBitableClient:
         :param user_id: 用户ID
         :param transcription: 语音转录文本（可选）
         :param summary: AI摘要（可选）
+        :param capability_assessment: 个人能力评估（可选）
         :return: 保存是否成功
         """
         max_retries = 2
@@ -366,6 +381,15 @@ class FeishuBitableClient:
                 # 如果有转录文本，添加到数据中
                 if transcription:
                     log_data["语音转录结果"] = transcription
+                
+                # 注意：表格中没有"AI摘要"字段，暂时不保存summary
+                # 如果需要保存AI摘要，请先在飞书多维表格中添加对应字段
+                # if summary:
+                #     log_data["AI摘要"] = summary
+                
+                # 如果有个人能力评估，添加到数据中
+                if capability_assessment:
+                    log_data["个人能力评估"] = capability_assessment
                 
                 # 创建记录
                 result = self.create_records(
@@ -423,7 +447,8 @@ def save_voice_log(
     content: str, 
     user_id: str, 
     transcription: Optional[str] = None,
-    summary: Optional[str] = None
+    summary: Optional[str] = None,
+    capability_assessment: Optional[str] = None
 ) -> bool:
     """保存语音日志（全局函数）
     
@@ -432,6 +457,7 @@ def save_voice_log(
         user_id: 用户ID
         transcription: 转录文本
         summary: 摘要
+        capability_assessment: 个人能力评估
     """
     client = get_feishu_client()
-    return client.save_voice_log(content, user_id, transcription, summary)
+    return client.save_voice_log(content, user_id, transcription, summary, capability_assessment)

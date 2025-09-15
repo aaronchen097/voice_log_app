@@ -447,6 +447,50 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     }
     
+    // 显示转录结果
+    function displayTranscriptionResult(text) {
+        const transcriptionContent = document.getElementById('transcription-content');
+        const resultSection = document.getElementById('result-section');
+        
+        if (transcriptionContent) {
+            transcriptionContent.textContent = text;
+        }
+        if (resultSection) {
+            resultSection.classList.remove('hidden');
+        }
+        
+        // 更新全局变量
+        currentTranscription = text;
+    }
+    
+    // 显示摘要结果
+    function displaySummaryResult(summary) {
+        const summaryResult = document.getElementById('summary-result');
+        const summarySection = document.getElementById('summary-section');
+        
+        if (summaryResult) {
+            summaryResult.innerHTML = `<p>${summary}</p>`;
+        }
+        if (summarySection) {
+            summarySection.classList.remove('hidden');
+        }
+    }
+    
+    // 显示个人能力评估结果
+    function displayCapabilityAssessment(assessment) {
+        const capabilityContent = document.getElementById('capability-content');
+        const capabilitySection = document.getElementById('capability-section');
+        
+        if (capabilityContent) {
+            // 将评估结果按行分割并格式化显示
+            const formattedAssessment = assessment.replace(/\n/g, '<br>');
+            capabilityContent.innerHTML = `<div class="capability-result">${formattedAssessment}</div>`;
+        }
+        if (capabilitySection) {
+            capabilitySection.classList.remove('hidden');
+        }
+    }
+    
     // 创建全局任务管理器实例
     const taskManager = new TaskManager();
 
@@ -580,11 +624,27 @@ document.addEventListener("DOMContentLoaded", () => {
                 // 完成任务 - 修复缓存问题 v1.1
                 taskManager.completeTask(task.id, {
                     text: result.text || '',
-                    summary: null // 摘要将在后续生成
+                    summary: result.summary || null,
+                    capability_assessment: result.capability_assessment || null
                 });
                 
-                // 自动生成摘要
-                if (result.text && result.text.trim()) {
+                // 显示转录结果
+                if (result.text) {
+                    displayTranscriptionResult(result.text);
+                }
+                
+                // 显示摘要结果
+                if (result.summary) {
+                    displaySummaryResult(result.summary);
+                }
+                
+                // 显示个人能力评估结果
+                if (result.capability_assessment) {
+                    displayCapabilityAssessment(result.capability_assessment);
+                }
+                
+                // 自动生成摘要（如果没有的话）
+                if (result.text && result.text.trim() && !result.summary) {
                     generateSummaryForTask(task.id, result.text);
                 }
             } else {
@@ -812,4 +872,27 @@ document.addEventListener("DOMContentLoaded", () => {
     // 摘要功能现在由TaskManager自动处理，无需手动触发
 
     // 录音和查询功能已移除，当前版本专注于文件上传功能
+
+    // 复制个人能力评估按钮事件
+    const copyCapabilityBtn = document.getElementById('copy-capability-btn');
+    if (copyCapabilityBtn) {
+        copyCapabilityBtn.addEventListener('click', () => {
+            const capabilityContent = document.getElementById('capability-content');
+            if (capabilityContent) {
+                const text = capabilityContent.textContent || capabilityContent.innerText;
+                navigator.clipboard.writeText(text).then(() => {
+                    showSuccessAlert('个人能力评估已复制到剪贴板');
+                }).catch(err => {
+                    console.error('复制失败:', err);
+                    // 降级方案：选择文本
+                    const range = document.createRange();
+                    range.selectNodeContents(capabilityContent);
+                    const selection = window.getSelection();
+                    selection.removeAllRanges();
+                    selection.addRange(range);
+                });
+            }
+        });
+    }
+
 });
