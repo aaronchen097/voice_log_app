@@ -12,7 +12,7 @@
 
 ## 音频处理接口
 
-### 1. 上传音频文件
+### 1. 上传音频文件（单文件模式）
 
 **接口**: `POST /upload_audio`
 
@@ -28,6 +28,48 @@
   "task_id": "uuid-string",
   "message": "音频上传成功，开始处理",
   "filename": "audio.wav"
+}
+```
+
+### 2. 批量上传音频片段
+
+**接口**: `POST /api/batch_upload`
+
+**描述**: 批量上传多个音频片段，用于分段音频统一转写功能
+
+**请求参数**:
+- `file` (FormData): 音频文件，支持格式：wav, mp3, m4a, flac, aac, ogg
+- `user_id` (FormData, 可选): 用户ID，用于飞书多维表格关联
+
+**响应示例**:
+```json
+{
+  "success": true,
+  "message": "音频片段上传成功",
+  "filename": "segment_001.wav",
+  "segment_id": "uuid-string"
+}
+```
+
+### 3. 统一转写批量音频
+
+**接口**: `POST /api/batch_transcribe`
+
+**描述**: 对所有已上传的音频片段进行统一转写和AI摘要生成
+
+**请求体**:
+```json
+{
+  "user_id": "ou_xxxxxxxxxxxxxxxxx"
+}
+```
+
+**响应示例**:
+```json
+{
+  "task_id": "uuid-string",
+  "message": "开始统一转写处理",
+  "segments_count": 5
 }
 ```
 
@@ -277,6 +319,14 @@ if result['status'] == 'completed':
 ```
 
 ## 更新日志
+
+### v1.3.0 (2024-01-20)
+- 🆕 新增分段音频统一转写功能
+- 🆕 新增批量上传接口 `POST /api/batch_upload`
+- 🆕 新增统一转写接口 `POST /api/batch_transcribe`
+- 🔄 前端支持双模式切换（单文件模式/批量模式）
+- 🎨 优化用户界面，新增批量模式UI组件
+- 🐛 修复前端提示函数未定义的问题
 
 ### v1.2.0 (2024-01-15)
 - 新增飞书多维表格集成功能

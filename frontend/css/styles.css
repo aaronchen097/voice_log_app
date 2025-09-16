@@ -978,3 +978,273 @@ button:disabled::before, .btn-primary:disabled::before {
     content: "📋";
     font-size: 0.9em;
 }
+
+/* 模式切换样式 */
+.mode-switch-container {
+    background: var(--surface-light);
+    border-radius: 12px;
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+    border: 1px solid var(--border-light);
+}
+
+.mode-switch {
+    display: flex;
+    justify-content: center;
+    margin-bottom: 0.75rem;
+}
+
+.switch-label {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    cursor: pointer;
+    user-select: none;
+}
+
+.mode-text {
+    font-size: 0.95rem;
+    font-weight: 500;
+    color: var(--text-secondary);
+    transition: color var(--transition-fast) ease;
+}
+
+.switch {
+    position: relative;
+    width: 60px;
+    height: 32px;
+}
+
+.switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.slider {
+    position: absolute;
+    cursor: pointer;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: var(--border-color);
+    transition: var(--transition-normal);
+    border-radius: 32px;
+}
+
+.slider:before {
+    position: absolute;
+    content: "";
+    height: 24px;
+    width: 24px;
+    left: 4px;
+    bottom: 4px;
+    background-color: white;
+    transition: var(--transition-normal);
+    border-radius: 50%;
+    box-shadow: var(--shadow-sm);
+}
+
+input:checked + .slider {
+    background-color: var(--primary-color);
+}
+
+input:checked + .slider:before {
+    transform: translateX(28px);
+}
+
+.switch-label:has(input:checked) .mode-text:last-child {
+    color: var(--primary-color);
+    font-weight: 600;
+}
+
+.switch-label:not(:has(input:checked)) .mode-text:first-child {
+    color: var(--primary-color);
+    font-weight: 600;
+}
+
+.mode-description {
+    text-align: center;
+    font-size: 0.875rem;
+    color: var(--text-muted);
+    font-style: italic;
+}
+
+/* 批量模式界面样式 */
+.batch-section {
+    background: var(--surface-color);
+    border-radius: 16px;
+    padding: 2rem;
+    margin-bottom: 2rem;
+    border: 1px solid var(--border-color);
+    box-shadow: var(--shadow-md);
+}
+
+.batch-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1.5rem;
+    flex-wrap: wrap;
+    gap: 1rem;
+}
+
+.batch-header h3 {
+    color: var(--primary-color);
+    margin: 0;
+    font-size: 1.25rem;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.batch-actions {
+    display: flex;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+}
+
+.batch-segments {
+    position: relative;
+}
+
+.empty-state {
+    text-align: center;
+    padding: 3rem 1rem;
+    color: var(--text-muted);
+}
+
+.empty-icon {
+    font-size: 3rem;
+    margin-bottom: 1rem;
+    opacity: 0.6;
+}
+
+.empty-state p {
+    margin: 0.5rem 0;
+    font-size: 1rem;
+}
+
+.empty-hint {
+    font-size: 0.875rem !important;
+    color: var(--text-disabled) !important;
+}
+
+.segments-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+/* 音频片段项样式 */
+.segment-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: var(--surface-light);
+    border: 1px solid var(--border-light);
+    border-radius: 12px;
+    padding: 1rem 1.25rem;
+    transition: all var(--transition-fast) ease;
+}
+
+.segment-item:hover {
+    border-color: var(--primary-color);
+    box-shadow: var(--shadow-sm);
+    transform: translateY(-1px);
+}
+
+.segment-info {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    flex: 1;
+}
+
+.segment-icon {
+    font-size: 1.5rem;
+    opacity: 0.8;
+}
+
+.segment-details {
+    flex: 1;
+}
+
+.segment-filename {
+    font-weight: 500;
+    color: var(--text-color);
+    margin-bottom: 0.25rem;
+    word-break: break-all;
+}
+
+.segment-meta {
+    display: flex;
+    gap: 1rem;
+    font-size: 0.875rem;
+    color: var(--text-muted);
+}
+
+.segment-actions {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.segment-remove-btn {
+    background: var(--error-color);
+    color: white;
+    border: none;
+    border-radius: 6px;
+    width: 28px;
+    height: 28px;
+    cursor: pointer;
+    font-size: 1rem;
+    font-weight: bold;
+    transition: all var(--transition-fast) ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.segment-remove-btn:hover {
+    background: #DC2626;
+    transform: scale(1.1);
+}
+
+.segment-remove-btn:active {
+    transform: scale(0.95);
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+    .batch-header {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    
+    .batch-actions {
+        justify-content: center;
+    }
+    
+    .segment-item {
+        padding: 0.875rem 1rem;
+    }
+    
+    .segment-info {
+        gap: 0.75rem;
+    }
+    
+    .segment-meta {
+        flex-direction: column;
+        gap: 0.25rem;
+    }
+    
+    .mode-switch-container {
+        padding: 1rem;
+    }
+    
+    .switch-label {
+        gap: 0.75rem;
+    }
+}

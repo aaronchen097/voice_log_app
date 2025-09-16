@@ -8,6 +8,10 @@ document.addEventListener("DOMContentLoaded", () => {
         return;
     }
 
+    // 批量模式相关变量
+    let isBatchMode = false;
+    let batchSegments = [];
+    
     // DOM元素引用已移至需要时获取，避免页面加载时元素不存在的问题
 
     // 获取认证token
@@ -552,6 +556,12 @@ document.addEventListener("DOMContentLoaded", () => {
             return;
         }
 
+        // 批量模式处理
+        if (isBatchMode) {
+            await handleBatchFileUpload(file);
+            return;
+        }
+
         // 检查是否可以开始新的上传
         if (!taskManager.canStartNewUpload()) {
             alert(`当前已有${taskManager.maxConcurrentUploads}个文件在处理中，请等待完成后再上传`);
@@ -743,6 +753,91 @@ document.addEventListener("DOMContentLoaded", () => {
             }
         }, 3000);
     }
+    
+    // 成功提示函数（别名）
+    function showSuccessAlert(message) {
+        showSuccessMessage(message);
+    }
+    
+    // 错误提示函数
+    function showErrorAlert(message) {
+        console.log('showErrorAlert被调用，消息:', message);
+        
+        const errorAlert = document.createElement('div');
+        errorAlert.className = 'error-alert';
+        errorAlert.innerHTML = `
+            <div class="error-content">
+                <span class="error-icon">❌</span>
+                <span class="error-text">${message}</span>
+                <button class="error-close" onclick="this.parentElement.parentElement.remove()">&times;</button>
+            </div>
+        `;
+        
+        errorAlert.style.cssText = `
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: #f8d7da;
+            border: 1px solid #f5c6cb;
+            border-radius: 8px;
+            padding: 15px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            z-index: 9999;
+            max-width: 400px;
+            animation: slideIn 0.3s ease-out;
+            display: block;
+            visibility: visible;
+            opacity: 1;
+        `;
+        
+        // 添加错误提示样式（如果还没有的话）
+        if (!document.querySelector('#error-alert-styles')) {
+            const style = document.createElement('style');
+            style.id = 'error-alert-styles';
+            style.textContent = `
+                .error-content {
+                    display: flex;
+                    align-items: center;
+                    gap: 10px;
+                    color: #721c24;
+                }
+                .error-icon {
+                    font-size: 18px;
+                }
+                .error-text {
+                    flex: 1;
+                    font-weight: 500;
+                }
+                .error-close {
+                    background: none;
+                    border: none;
+                    font-size: 20px;
+                    cursor: pointer;
+                    color: #721c24;
+                    padding: 0;
+                    width: 24px;
+                    height: 24px;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                }
+                .error-close:hover {
+                    background: rgba(114, 28, 36, 0.1);
+                    border-radius: 50%;
+                }
+            `;
+            document.head.appendChild(style);
+        }
+        
+        document.body.appendChild(errorAlert);
+        
+        // 5秒后自动移除（错误消息显示时间稍长）
+        setTimeout(() => {
+            if (errorAlert.parentElement) {
+                errorAlert.remove();
+            }
+        }, 5000);
+    }
 
     // 为特定任务生成摘要
     async function generateSummaryForTask(taskId, text) {
@@ -874,5 +969,307 @@ document.addEventListener("DOMContentLoaded", () => {
             }
         });
     }
-
+    
+    // 批量模式初始化
+    initBatchMode();
+    
+    // 批量模式相关函数
+    function initBatchMode() {
+        const batchModeToggle = document.getElementById('batch-mode-toggle');
+        const modeDesc = document.getElementById('mode-desc');
+        const tasksSection = document.getElementById('tasks-section');
+        const batchSection = document.getElementById('batch-section');
+        const batchProcessBtn = document.getElementById('batch-process-btn');
+        const batchClearBtn = document.getElementById('batch-clear-btn');
+        
+        if (!batchModeToggle) return;
+        
+        // 模式切换事件
+        batchModeToggle.addEventListener('change', (e) => {
+            isBatchMode = e.target.checked;
+            updateModeUI();
+        });
+        
+        // 批量处理按钮事件
+        if (batchProcessBtn) {
+            batchProcessBtn.addEventListener('click', processBatchAudio);
+        }
+        
+        // 清空片段按钮事件
+        if (batchClearBtn) {
+            batchClearBtn.addEventListener('click', clearBatchSegments);
+        }
+        
+        // 初始化UI状态
+        updateModeUI();
+        loadBatchSegments();
+    }
+    
+    function updateModeUI() {
+        const modeDesc = document.getElementById('mode-desc');
+        const tasksSection = document.getElementById('tasks-section');
+        const batchSection = document.getElementById('batch-section');
+        
+        if (modeDesc) {
+            modeDesc.textContent = isBatchMode 
+                ? '批量模式：上传多个音频片段，统一转写和总结'
+                : '单文件模式：上传后立即转写和总结';
+        }
+        
+        if (tasksSection) {
+            tasksSection.style.display = isBatchMode ? 'none' : 'block';
+        }
+        
+        if (batchSection) {
+            batchSection.style.display = isBatchMode ? 'block' : 'none';
+        }
+    }
+    
+    async function loadBatchSegments() {
+        if (!isBatchMode) return;
+        
+        try {
+            const token = getAuthToken();
+            const response = await fetch('/api/batch_list', {
+                method: 'GET',
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            });
+            
+            if (response.ok) {
+                const data = await response.json();
+                if (data.success) {
+                    batchSegments = data.segments || [];
+                    updateBatchUI();
+                }
+            }
+        } catch (error) {
+            console.error('加载音频片段列表失败:', error);
+        }
+    }
+    
+    function updateBatchUI() {
+        const batchCount = document.getElementById('batch-count');
+        const batchProcessBtn = document.getElementById('batch-process-btn');
+        const batchEmptyState = document.getElementById('batch-empty-state');
+        const segmentsList = document.getElementById('segments-list');
+        
+        if (batchCount) {
+            batchCount.textContent = batchSegments.length;
+        }
+        
+        if (batchProcessBtn) {
+            batchProcessBtn.disabled = batchSegments.length === 0;
+        }
+        
+        if (batchEmptyState) {
+            batchEmptyState.style.display = batchSegments.length === 0 ? 'block' : 'none';
+        }
+        
+        if (segmentsList) {
+            segmentsList.innerHTML = '';
+            batchSegments.forEach(segment => {
+                const segmentElement = createSegmentElement(segment);
+                segmentsList.appendChild(segmentElement);
+            });
+        }
+    }
+    
+    function createSegmentElement(segment) {
+        const template = document.getElementById('segment-item-template');
+        if (!template) return null;
+        
+        const clone = template.content.cloneNode(true);
+        const segmentItem = clone.querySelector('.segment-item');
+        
+        segmentItem.setAttribute('data-segment-id', segment.segment_id);
+        
+        const filename = clone.querySelector('.segment-filename');
+        const size = clone.querySelector('.segment-size');
+        const time = clone.querySelector('.segment-time');
+        const removeBtn = clone.querySelector('.segment-remove-btn');
+        
+        if (filename) filename.textContent = segment.filename;
+        if (size) size.textContent = formatFileSize(segment.file_size);
+        if (time) time.textContent = formatUploadTime(segment.upload_time);
+        
+        if (removeBtn) {
+            removeBtn.addEventListener('click', () => removeSegment(segment.segment_id));
+        }
+        
+        return clone;
+    }
+    
+    function formatFileSize(bytes) {
+        if (bytes === 0) return '0 B';
+        const k = 1024;
+        const sizes = ['B', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    }
+    
+    function formatUploadTime(timestamp) {
+        const date = new Date(timestamp);
+        const now = new Date();
+        const diff = now - date;
+        
+        if (diff < 60000) return '刚刚';
+        if (diff < 3600000) return Math.floor(diff / 60000) + '分钟前';
+        if (diff < 86400000) return Math.floor(diff / 3600000) + '小时前';
+        
+        return date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
+    }
+    
+    async function removeSegment(segmentId) {
+        // 从本地列表中移除
+        batchSegments = batchSegments.filter(s => s.segment_id !== segmentId);
+        updateBatchUI();
+        
+        // 这里可以添加服务器端删除逻辑
+        // 目前服务器端会在批量处理或清空时统一清理
+    }
+    
+    async function processBatchAudio() {
+        if (batchSegments.length === 0) {
+            showErrorAlert('没有待处理的音频片段');
+            return;
+        }
+        
+        const batchProcessBtn = document.getElementById('batch-process-btn');
+        if (batchProcessBtn) {
+            batchProcessBtn.disabled = true;
+            batchProcessBtn.textContent = '正在处理...';
+        }
+        
+        try {
+            const token = getAuthToken();
+            const response = await fetch('/api/batch_process', {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+            
+            if (response.ok) {
+                const data = await response.json();
+                if (data.success) {
+                    showSuccessAlert(`批量处理完成！共处理 ${data.processed_count} 个音频片段`);
+                    batchSegments = [];
+                    updateBatchUI();
+                } else {
+                    showErrorAlert(data.error || '批量处理失败');
+                }
+            } else {
+                const errorData = await response.json();
+                showErrorAlert(errorData.error || '批量处理请求失败');
+            }
+        } catch (error) {
+            console.error('批量处理失败:', error);
+            showErrorAlert('批量处理过程中发生错误');
+        } finally {
+            if (batchProcessBtn) {
+                batchProcessBtn.disabled = batchSegments.length === 0;
+                batchProcessBtn.textContent = `统一转写 (${batchSegments.length}个片段)`;
+            }
+        }
+    }
+    
+    async function clearBatchSegments() {
+        if (batchSegments.length === 0) {
+            showErrorAlert('没有音频片段需要清空');
+            return;
+        }
+        
+        if (!confirm(`确定要清空所有 ${batchSegments.length} 个音频片段吗？`)) {
+            return;
+        }
+        
+        try {
+            const token = getAuthToken();
+            const response = await fetch('/api/batch_clear', {
+                method: 'DELETE',
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            });
+            
+            if (response.ok) {
+                const data = await response.json();
+                if (data.success) {
+                    showSuccessAlert(`已清空 ${data.cleared_count} 个音频片段`);
+                    batchSegments = [];
+                    updateBatchUI();
+                } else {
+                    showErrorAlert(data.error || '清空失败');
+                }
+            } else {
+                const errorData = await response.json();
+                showErrorAlert(errorData.error || '清空请求失败');
+            }
+        } catch (error) {
+            console.error('清空音频片段失败:', error);
+            showErrorAlert('清空过程中发生错误');
+        }
+    }
+    
+    // 批量模式文件上传处理
+    async function handleBatchFileUpload(file) {
+        try {
+            // 验证登录状态
+            const token = getAuthToken();
+            if (!token) {
+                showErrorAlert('请先登录');
+                window.location.href = '/login';
+                return;
+            }
+            
+            // 显示上传进度提示
+            showSuccessAlert(`正在上传 ${file.name}...`);
+            
+            const formData = new FormData();
+            formData.append('file', file);
+            
+            const response = await fetch('/api/batch_upload', {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                },
+                body: formData
+            });
+            
+            if (response.status === 401) {
+                showErrorAlert('登录已过期，请重新登录');
+                setTimeout(() => {
+                    window.location.href = '/login';
+                }, 2000);
+                return;
+            }
+            
+            if (response.ok) {
+                const data = await response.json();
+                if (data.success) {
+                    // 创建片段对象并添加到本地列表
+                    const segment = {
+                        segment_id: data.segment_id,
+                        filename: data.filename,
+                        file_size: data.file_size,
+                        upload_time: new Date().toISOString()
+                    };
+                    batchSegments.push(segment);
+                    updateBatchUI();
+                    showSuccessAlert(`${file.name} 上传成功`);
+                } else {
+                    showErrorAlert(data.error || '上传失败');
+                }
+            } else {
+                const errorData = await response.json();
+                showErrorAlert(errorData.error || '上传请求失败');
+            }
+        } catch (error) {
+            console.error('批量上传失败:', error);
+            showErrorAlert('上传过程中发生错误');
+        }
+    }
 });

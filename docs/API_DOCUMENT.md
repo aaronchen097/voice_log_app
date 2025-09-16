@@ -28,7 +28,65 @@ The base URL for all API endpoints is the root of the application.
   - `400 Bad Request`: If the audio content cannot be recognized.
   - `500 Internal Server Error`: If an error occurs during the process.
 
-### 2. Query Logs
+### 2. Batch Upload Audio Segments
+
+- **Endpoint**: `/api/batch_upload`
+- **Method**: `POST`
+- **Description**: Uploads multiple audio files as segments for batch processing. Each segment is stored temporarily and can be processed together.
+- **Request Body**:
+  - `file`: The audio file to be uploaded (multipart/form-data).
+- **Responses**:
+  - `200 OK`: Returns a JSON object with segment information.
+    ```json
+    {
+      "success": true,
+      "message": "音频片段上传成功",
+      "segment_id": "unique_segment_id",
+      "filename": "audio_segment.wav",
+      "file_size": 1024000
+    }
+    ```
+  - `400 Bad Request`: If no file is provided or file format is invalid.
+  - `500 Internal Server Error`: If an error occurs during upload.
+
+### 3. Process Batch Audio Segments
+
+- **Endpoint**: `/api/batch_process`
+- **Method**: `POST`
+- **Description**: Processes all uploaded audio segments in batch. Transcribes each segment, concatenates the results in chronological order with file name markers (【filename】), and generates a unified AI summary using optimized prompts specifically designed for multi-segment content analysis. The AI prompt has been enhanced to understand cross-segment logical connections and temporal sequences.
+- **Request Body**: No body required (processes all segments for current user).
+- **Responses**:
+  - `200 OK`: Returns a JSON object with combined transcription and summary.
+    ```json
+    {
+      "success": true,
+      "combined_text": "【segment1.wav】\nTranscription of first segment...\n\n【segment2.wav】\nTranscription of second segment...",
+      "summary": "AI-generated summary of all segments using day_report mode...",
+      "capability_assessment": "Personal capability assessment based on combined content...",
+      "processed_segments": 3,
+      "feishu_saved": true
+    }
+    ```
+  - `400 Bad Request`: If no audio segments are available for processing.
+  - `500 Internal Server Error`: If an error occurs during batch processing.
+
+### 4. Clear Batch Audio Segments
+
+- **Endpoint**: `/api/clear_batch`
+- **Method**: `POST`
+- **Description**: Clears all uploaded audio segments for the current user without processing them.
+- **Request Body**: No body required.
+- **Responses**:
+  - `200 OK`: Returns a JSON object confirming successful clearing.
+    ```json
+    {
+      "success": true,
+      "message": "已清空当前批次的音频片段",
+      "cleared_segments": 3
+    }
+    ```
+
+### 5. Query Logs
 
 - **Endpoint**: `/api/query`
 - **Method**: `GET`
@@ -45,7 +103,7 @@ The base URL for all API endpoints is the root of the application.
     ```
   - `404 Not Found`: If no log files are available to query.
 
-### 3. Get Latest Summary
+### 6. Get Latest Summary
 
 - **Endpoint**: `/api/latest_summary`
 - **Method**: `GET`
@@ -61,7 +119,7 @@ The base URL for all API endpoints is the root of the application.
     ```
   - `404 Not Found`: If no logs are found.
 
-### 4. Generate AI Summary
+### 7. Generate AI Summary
 
 - **Endpoint**: `/api/summary`
 - **Method**: `POST`
@@ -86,7 +144,7 @@ The base URL for all API endpoints is the root of the application.
     ```
   - `500 Internal Server Error`: If an error occurs during summary generation.
 
-### 5. Generate Personal Capability Assessment
+### 8. Generate Personal Capability Assessment
 
 - **Endpoint**: `/api/capability_assessment`
 - **Method**: `POST`
@@ -109,7 +167,7 @@ The base URL for all API endpoints is the root of the application.
   - `400 Bad Request`: If the text parameter is missing or empty.
   - `500 Internal Server Error`: If an error occurs during assessment generation.
 
-### 6. Frontend
+### 9. Frontend
 
 - **Endpoint**: `/`
 - **Method**: `GET`
@@ -119,9 +177,9 @@ The base URL for all API endpoints is the root of the application.
 - **Method**: `GET`
 - **Description**: Serves static files (CSS, JavaScript, etc.) from the `static` directory. Falls back to the `frontend` directory for backward compatibility.
 
-### 7. OAuth Authentication
+### 10. OAuth Authentication
 
-#### 7.1 Initiate OAuth Login
+#### 10.1 Initiate OAuth Login
 
 - **Endpoint**: `/auth/login`
 - **Method**: `GET`
@@ -130,7 +188,7 @@ The base URL for all API endpoints is the root of the application.
   - `307 Temporary Redirect`: Redirects to Feishu OAuth authorization URL.
   - `500 Internal Server Error`: If OAuth configuration is missing or invalid.
 
-#### 7.2 OAuth Callback
+#### 10.2 OAuth Callback
 
 - **Endpoint**: `/auth/callback`
 - **Method**: `GET`

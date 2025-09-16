@@ -25,6 +25,23 @@
         <main class="main-content">
             <!-- 上传区域 -->
             <section class="upload-section">
+                <!-- 模式切换 -->
+                <div class="mode-switch-container">
+                    <div class="mode-switch">
+                        <label class="switch-label">
+                            <span class="mode-text">单文件模式</span>
+                            <div class="switch">
+                                <input type="checkbox" id="batch-mode-toggle">
+                                <span class="slider"></span>
+                            </div>
+                            <span class="mode-text">批量模式</span>
+                        </label>
+                    </div>
+                    <div class="mode-description">
+                        <span id="mode-desc">单文件模式：上传后立即转写和总结</span>
+                    </div>
+                </div>
+                
                 <div class="upload-tabs">
                     <button class="tab-btn active" data-tab="file">本地文件</button>
                     <button class="tab-btn" data-tab="url">URL链接</button>
@@ -56,6 +73,27 @@
                 </div>
                 <div class="tasks-container" id="tasks-container">
                     <!-- 动态生成的任务进度条将在这里显示 -->
+                </div>
+            </section>
+            
+            <!-- 批量模式音频片段管理 -->
+            <section class="batch-section" id="batch-section" style="display: none;">
+                <div class="batch-header">
+                    <h3>🎵 音频片段管理</h3>
+                    <div class="batch-actions">
+                        <button class="btn-primary" id="batch-process-btn" disabled>统一转写 (<span id="batch-count">0</span>个片段)</button>
+                        <button class="btn-secondary" id="batch-clear-btn">清空片段</button>
+                    </div>
+                </div>
+                <div class="batch-segments" id="batch-segments">
+                    <div class="empty-state" id="batch-empty-state">
+                        <div class="empty-icon">🎵</div>
+                        <p>还没有音频片段</p>
+                        <p class="empty-hint">在批量模式下上传音频文件，它们会暂存在这里</p>
+                    </div>
+                    <div class="segments-list" id="segments-list">
+                        <!-- 动态生成的音频片段列表 -->
+                    </div>
                 </div>
             </section>
             
@@ -96,6 +134,25 @@
                             <div class="result-preview"></div>
                             <button class="btn-secondary view-result-btn">查看完整结果</button>
                         </div>
+                    </div>
+                </div>
+            </template>
+            
+            <!-- 音频片段项模板 (隐藏) -->
+            <template id="segment-item-template">
+                <div class="segment-item" data-segment-id="">
+                    <div class="segment-info">
+                        <div class="segment-icon">🎵</div>
+                        <div class="segment-details">
+                            <div class="segment-filename"></div>
+                            <div class="segment-meta">
+                                <span class="segment-size"></span>
+                                <span class="segment-time"></span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="segment-actions">
+                        <button class="segment-remove-btn" title="移除片段">×</button>
                     </div>
                 </div>
             </template>
