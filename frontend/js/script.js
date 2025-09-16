@@ -322,12 +322,17 @@ document.addEventListener("DOMContentLoaded", () => {
             
             task.result = result;
             task.status = 'completed';
-            this.updateTaskProgress(taskId, 100, '✅ 转写完成', 'complete');
+            this.updateTaskProgress(taskId, 100, '✅ 任务完成，等待飞书后台推送', 'complete');
             
-            // 隐藏结果预览，只显示进度条
+            // 显示完成状态，不显示具体内容
             const resultDiv = task.element.querySelector('.task-result');
-            if (resultDiv) {
-                resultDiv.style.display = 'none';
+            const resultPreview = task.element.querySelector('.result-preview');
+            if (resultDiv && resultPreview) {
+                resultPreview.textContent = '转录完成，结果已保存到飞书多维表格';
+                resultDiv.style.display = 'block';
+                // 隐藏查看完整结果按钮
+                const viewBtn = resultDiv.querySelector('.view-result-btn');
+                if (viewBtn) viewBtn.style.display = 'none';
             }
             
             this.activeUploads--;
@@ -368,29 +373,13 @@ document.addEventListener("DOMContentLoaded", () => {
             }
         }
         
-        // 显示完整结果
+        // 显示完整结果 - 不再显示具体内容
         showFullResult(taskId) {
             const task = this.tasks.get(taskId);
             if (!task || !task.result) return;
             
-            // 更新主结果区域
-            currentTranscription = task.result.text || '';
-            if (transcriptionContent) {
-                transcriptionContent.textContent = currentTranscription;
-            }
-            if (resultSection) {
-                resultSection.classList.remove('hidden');
-            }
-            
-            // 如果有摘要，显示摘要区域
-            if (task.result.summary) {
-                if (summaryResult) {
-                    summaryResult.innerHTML = `<p>${task.result.summary}</p>`;
-                }
-                if (summarySection) {
-                    summarySection.classList.remove('hidden');
-                }
-            }
+            // 不显示具体的转写内容，只显示提示信息
+            showSuccessMessage('转录结果已保存到飞书多维表格，请前往飞书查看详细内容');
         }
         
         // 显示清除已完成按钮
@@ -621,27 +610,19 @@ document.addEventListener("DOMContentLoaded", () => {
             if (result.success) {
                 taskManager.updateTaskProgress(task.id, 90, '转写完成，正在整理结果...', 'process');
                 
-                // 完成任务 - 修复缓存问题 v1.1
+                // 完成任务 - 不显示具体转写结果，只显示完成状态
+                taskManager.updateTaskProgress(task.id, 100, '任务完成，等待飞书后台推送', 'complete');
                 taskManager.completeTask(task.id, {
                     text: result.text || '',
                     summary: result.summary || null,
                     capability_assessment: result.capability_assessment || null
                 });
                 
-                // 显示转录结果
-                if (result.text) {
-                    displayTranscriptionResult(result.text);
-                }
+                // 不再显示具体的转录结果到页面上
+                // 转录结果已保存到后台，等待飞书推送
                 
-                // 显示摘要结果
-                if (result.summary) {
-                    displaySummaryResult(result.summary);
-                }
-                
-                // 显示个人能力评估结果
-                if (result.capability_assessment) {
-                    displayCapabilityAssessment(result.capability_assessment);
-                }
+                // 显示任务完成提示
+                showSuccessMessage('语音转录完成，结果已保存到飞书多维表格');
                 
                 // 自动生成摘要（如果没有的话）
                 if (result.text && result.text.trim() && !result.summary) {
@@ -801,12 +782,11 @@ document.addEventListener("DOMContentLoaded", () => {
                 // 更新任务结果
                 task.result.summary = result.summary;
                 
-                // 更新任务显示
+                // 不显示具体内容预览，只显示完成状态
                 const resultDiv = task.element.querySelector('.task-result');
                 const resultPreview = task.element.querySelector('.result-preview');
                 if (resultDiv && resultPreview) {
-                    const preview = text.length > 100 ? text.substring(0, 100) + '...' : text;
-                    resultPreview.textContent = `${preview}\n\n摘要: ${result.summary.substring(0, 50)}...`;
+                    resultPreview.textContent = '转录和摘要已完成，结果已保存到飞书多维表格';
                 }
             }
         } catch (error) {
