@@ -8,8 +8,7 @@ document.addEventListener("DOMContentLoaded", () => {
         return;
     }
 
-    // 批量模式相关变量
-    let isBatchMode = false;
+    // 批量模式相关变量（现在只有批量模式）
     let batchSegments = [];
     
     // DOM元素引用已移至需要时获取，避免页面加载时元素不存在的问题
@@ -487,6 +486,204 @@ document.addEventListener("DOMContentLoaded", () => {
     // 创建全局任务管理器实例
     const taskManager = new TaskManager();
 
+    // 主人声管理功能
+    async function checkMasterVoiceStatus() {
+        try {
+            const token = getAuthToken();
+            if (!token) return false;
+            
+            const response = await fetch('/api/check_master_voice', {
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            });
+            
+            if (response.ok) {
+                const data = await response.json();
+                updateMasterVoiceUI(data.has_master_voice, data.master_voice_file);
+                return data.has_master_voice;
+            }
+        } catch (error) {
+            console.error('检查主人声状态失败:', error);
+        }
+        return false;
+    }
+    
+    function updateMasterVoiceUI(exists, filename = '') {
+        const statusDiv = document.getElementById('master-voice-status');
+        const uploadBtn = document.getElementById('upload-master-voice-btn');
+        const deleteBtn = document.getElementById('delete-master-voice-btn');
+        
+        if (statusDiv) {
+            if (exists) {
+                statusDiv.innerHTML = `<span class="status-success">✓ 已设置主人声音频${filename ? ': ' + filename : ''}</span>`;
+                if (uploadBtn) uploadBtn.textContent = '重新上传主人声';
+                if (deleteBtn) deleteBtn.style.display = 'inline-block';
+                // 隐藏提醒信息
+                hideMasterVoiceReminder();
+            } else {
+                statusDiv.innerHTML = `<span class="status-warning">⚠ 未设置主人声音频</span>`;
+                if (uploadBtn) uploadBtn.textContent = '上传主人声';
+                if (deleteBtn) deleteBtn.style.display = 'none';
+                // 显示提醒信息
+                showMasterVoiceReminder();
+            }
+        }
+    }
+    
+    function showMasterVoiceReminder() {
+        // 检查是否已存在提醒
+        let reminder = document.getElementById('master-voice-reminder');
+        if (reminder) return;
+        
+        // 创建提醒元素
+        reminder = document.createElement('div');
+        reminder.id = 'master-voice-reminder';
+        reminder.className = 'alert alert-warning mt-3';
+        reminder.innerHTML = `
+            <div class="d-flex align-items-center">
+                <i class="fas fa-exclamation-triangle me-2"></i>
+                <div class="flex-grow-1">
+                    <strong>重要提醒：</strong>您还没有上传主人声音频！<br>
+                    <small class="text-muted">主人声音频用于语音克隆，请先上传您的声音样本以获得更好的效果。</small>
+                </div>
+                <button type="button" class="btn btn-primary btn-sm ms-2" onclick="document.getElementById('upload-master-voice-btn').click()">
+                    立即上传
+                </button>
+            </div>
+        `;
+        
+        // 插入到主人声设置区域
+        const masterVoiceSection = document.querySelector('.tab-content #master-voice');
+        if (masterVoiceSection) {
+            const firstChild = masterVoiceSection.firstElementChild;
+            if (firstChild) {
+                masterVoiceSection.insertBefore(reminder, firstChild);
+            } else {
+                masterVoiceSection.appendChild(reminder);
+            }
+        }
+    }
+    
+    function hideMasterVoiceReminder() {
+        const reminder = document.getElementById('master-voice-reminder');
+        if (reminder) {
+            reminder.remove();
+        }
+    }
+    
+    async function uploadMasterVoice() {
+        const input = document.getElementById('master-voice-input');
+        if (!input) return;
+        
+        // 触发文件选择器
+        input.click();
+    }
+    
+    // 处理主人声文件选择
+    async function handleMasterVoiceFileSelect(e) {
+        const input = e.target;
+        if (!input) return;
+        
+        const handleFileUpload = async () => {
+            const file = e.target.files[0];
+            if (!file) return;
+            
+            // 验证文件类型
+            const allowedTypes = ['audio/mp3', 'audio/wav', 'audio/m4a', 'audio/aac', 'audio/mpeg'];
+            if (!allowedTypes.includes(file.type) && !file.name.match(/\.(mp3|wav|m4a|aac)$/i)) {
+                showErrorAlert('请选择支持的音频格式：MP3, WAV, M4A, AAC');
+                return;
+            }
+            
+            // 验证文件大小（限制为10MB）
+            if (file.size > 10 * 1024 * 1024) {
+                showErrorAlert('文件大小不能超过10MB');
+                return;
+            }
+            
+            try {
+                const token = getAuthToken();
+                if (!token) {
+                    showErrorAlert('请先登录');
+                    return;
+                }
+                
+                showSuccessAlert('正在上传主人声音频...');
+                
+                const formData = new FormData();
+                formData.append('file', file);
+                
+                const response = await fetch('/api/upload_master_voice', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: formData
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.success) {
+                        showSuccessAlert('主人声音频上传成功！');
+                        // 重新检查状态以确保数据同步
+                        await checkMasterVoiceStatus();
+                    } else {
+                        showErrorAlert(data.error || '上传失败');
+                    }
+                } else {
+                    const errorData = await response.json();
+                    showErrorAlert(errorData.error || '上传请求失败');
+                }
+            } catch (error) {
+                console.error('上传主人声失败:', error);
+                showErrorAlert('上传过程中发生错误');
+            } finally {
+                // 清空文件输入，允许重新选择同一文件
+                input.value = '';
+            }
+        };
+        
+        await handleFileUpload();
+    }
+    
+    async function deleteMasterVoice() {
+        if (!confirm('确定要删除主人声音频吗？删除后将无法使用主人声预处理功能。')) {
+            return;
+        }
+        
+        try {
+            const token = getAuthToken();
+            if (!token) {
+                showErrorAlert('请先登录');
+                return;
+            }
+            
+            const response = await fetch('/api/delete_master_voice', {
+                method: 'DELETE',
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            });
+            
+            if (response.ok) {
+                const data = await response.json();
+                if (data.success) {
+                    showSuccessAlert('主人声音频已删除');
+                    updateMasterVoiceUI(false);
+                } else {
+                    showErrorAlert(data.error || '删除失败');
+                }
+            } else {
+                const errorData = await response.json();
+                showErrorAlert(errorData.error || '删除请求失败');
+            }
+        } catch (error) {
+            console.error('删除主人声失败:', error);
+            showErrorAlert('删除过程中发生错误');
+        }
+    }
+
     // 标签页切换功能
     tabBtns.forEach(btn => {
         btn.addEventListener('click', () => {
@@ -504,6 +701,16 @@ document.addEventListener("DOMContentLoaded", () => {
                     content.classList.add('hidden');
                 }
             });
+            
+            // 如果切换到主人声设置标签页，检查状态
+            if (tabId === 'master-voice') {
+                checkMasterVoiceStatus();
+            }
+            
+            // 如果切换到批量模式标签页，检查并显示主人声状态
+            if (tabId === 'batch') {
+                checkBatchMasterVoiceStatus();
+            }
         });
     });
 
@@ -541,7 +748,7 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     }
 
-    // 处理文件上传 - 使用TaskManager
+    // 处理文件上传 - 仅批量模式
     async function handleFileUpload(file) {
         // 验证文件类型
         const allowedTypes = ['audio/mp3', 'audio/wav', 'audio/m4a', 'audio/aac', 'audio/mpeg'];
@@ -556,96 +763,11 @@ document.addEventListener("DOMContentLoaded", () => {
             return;
         }
 
-        // 批量模式处理
-        if (isBatchMode) {
-            await handleBatchFileUpload(file);
-            return;
-        }
+        // 直接使用批量模式处理
+        await handleBatchFileUpload(file);
+        return;
 
-        // 检查是否可以开始新的上传
-        if (!taskManager.canStartNewUpload()) {
-            alert(`当前已有${taskManager.maxConcurrentUploads}个文件在处理中，请等待完成后再上传`);
-            return;
-        }
-
-        // 创建新任务
-        const task = taskManager.createTask(file);
-
-        try {
-            // 使用缓存的token验证
-            taskManager.updateTaskProgress(task.id, 2, '验证登录状态...', 'upload');
-            const isTokenValid = await taskManager.getCachedTokenValidation();
-            if (!isTokenValid) {
-                taskManager.failTask(task.id, '登录已过期，请重新登录');
-                setTimeout(() => {
-                    window.location.href = '/login';
-                }, 2000);
-                return;
-            }
-
-            // 开始上传
-            taskManager.startUpload(task.id);
-
-            const formData = new FormData();
-            formData.append('file', file);
-            
-            taskManager.updateTaskProgress(task.id, 20, '正在上传文件...', 'upload');
-            
-            const response = await fetch('/api/voice_log', {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${getAuthToken()}`
-                },
-                body: formData
-            });
-
-            if (response.status === 401) {
-                taskManager.failTask(task.id, '认证失败，请重新登录');
-                // 清除缓存的token验证
-                taskManager.tokenValidationCache = null;
-                setTimeout(() => {
-                    window.location.href = '/login';
-                }, 2000);
-                return;
-            }
-
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
-
-            taskManager.updateTaskProgress(task.id, 50, '文件上传完成，正在进行语音识别...', 'process');
-            
-            const result = await response.json();
-            
-            if (result.success) {
-                taskManager.updateTaskProgress(task.id, 90, '转写完成，正在整理结果...', 'process');
-                
-                // 完成任务 - 不显示具体转写结果，只显示完成状态
-                taskManager.updateTaskProgress(task.id, 100, '任务完成，等待飞书后台推送', 'complete');
-                taskManager.completeTask(task.id, {
-                    text: result.text || '',
-                    summary: result.summary || null,
-                    capability_assessment: result.capability_assessment || null
-                });
-                
-                // 不再显示具体的转录结果到页面上
-                // 转录结果已保存到后台，等待飞书推送
-                
-                // 显示任务完成提示
-                showSuccessMessage('语音转录完成，结果已保存到飞书多维表格');
-                
-                // 自动生成摘要（如果没有的话）
-                if (result.text && result.text.trim() && !result.summary) {
-                    generateSummaryForTask(task.id, result.text);
-                }
-            } else {
-                throw new Error(result.error || '转写失败');
-            }
-
-        } catch (error) {
-            console.error('上传失败:', error);
-            taskManager.failTask(task.id, error.message);
-        }
+        // 单文件模式逻辑已移除，现在只支持批量模式
     }
 
     // 更新进度显示
@@ -970,25 +1092,13 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     }
     
-    // 批量模式初始化
+    // 批量模式初始化（现在只有批量模式）
     initBatchMode();
     
     // 批量模式相关函数
     function initBatchMode() {
-        const batchModeToggle = document.getElementById('batch-mode-toggle');
-        const modeDesc = document.getElementById('mode-desc');
-        const tasksSection = document.getElementById('tasks-section');
-        const batchSection = document.getElementById('batch-section');
         const batchProcessBtn = document.getElementById('batch-process-btn');
         const batchClearBtn = document.getElementById('batch-clear-btn');
-        
-        if (!batchModeToggle) return;
-        
-        // 模式切换事件
-        batchModeToggle.addEventListener('change', (e) => {
-            isBatchMode = e.target.checked;
-            updateModeUI();
-        });
         
         // 批量处理按钮事件
         if (batchProcessBtn) {
@@ -1000,33 +1110,14 @@ document.addEventListener("DOMContentLoaded", () => {
             batchClearBtn.addEventListener('click', clearBatchSegments);
         }
         
-        // 初始化UI状态
-        updateModeUI();
+        // 加载批量片段
         loadBatchSegments();
     }
     
-    function updateModeUI() {
-        const modeDesc = document.getElementById('mode-desc');
-        const tasksSection = document.getElementById('tasks-section');
-        const batchSection = document.getElementById('batch-section');
-        
-        if (modeDesc) {
-            modeDesc.textContent = isBatchMode 
-                ? '批量模式：上传多个音频片段，统一转写和总结'
-                : '单文件模式：上传后立即转写和总结';
-        }
-        
-        if (tasksSection) {
-            tasksSection.style.display = isBatchMode ? 'none' : 'block';
-        }
-        
-        if (batchSection) {
-            batchSection.style.display = isBatchMode ? 'block' : 'none';
-        }
-    }
+    // updateModeUI函数已移除，现在只有批量模式
     
     async function loadBatchSegments() {
-        if (!isBatchMode) return;
+        // 现在只有批量模式，移除模式检查
         
         try {
             const token = getAuthToken();
@@ -1136,6 +1227,41 @@ document.addEventListener("DOMContentLoaded", () => {
             return;
         }
         
+        // 检查主人声状态
+        try {
+            const token = getAuthToken();
+            const masterVoiceResponse = await fetch('/api/check_master_voice', {
+                method: 'GET',
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            });
+            
+            if (masterVoiceResponse.ok) {
+                const masterVoiceData = await masterVoiceResponse.json();
+                if (!masterVoiceData.has_master_voice) {
+                    const userChoice = confirm(
+                        '检测到您尚未上传主人声音频。\n\n' +
+                        '主人声音频可以帮助系统更准确地识别您的声音，提高转写质量。\n\n' +
+                        '点击"确定"继续批量转写（不使用主人声预处理）\n' +
+                        '点击"取消"前往设置页面上传主人声音频'
+                    );
+                    
+                    if (!userChoice) {
+                        // 用户选择先设置主人声
+                        const masterVoiceTab = document.querySelector('[data-tab="master-voice"]');
+                        if (masterVoiceTab) {
+                            masterVoiceTab.click();
+                        }
+                        showErrorAlert('请先上传主人声音频以获得更好的转写效果');
+                        return;
+                    }
+                }
+            }
+        } catch (error) {
+            console.warn('检查主人声状态失败，继续批量处理:', error);
+        }
+        
         const batchProcessBtn = document.getElementById('batch-process-btn');
         if (batchProcessBtn) {
             batchProcessBtn.disabled = true;
@@ -1155,9 +1281,12 @@ document.addEventListener("DOMContentLoaded", () => {
             if (response.ok) {
                 const data = await response.json();
                 if (data.success) {
-                    showSuccessAlert(`批量处理完成！共处理 ${data.processed_count} 个音频片段`);
+                    const modeText = data.has_master_voice ? '（已使用主人声预处理）' : '（标准转写模式）';
+                    showSuccessAlert(`批量处理完成！共处理 ${data.processed_count} 个音频片段 ${modeText}`);
                     batchSegments = [];
                     updateBatchUI();
+                    // 刷新批量模式页面的主人声状态显示
+                    checkBatchMasterVoiceStatus();
                 } else {
                     showErrorAlert(data.error || '批量处理失败');
                 }
@@ -1225,6 +1354,37 @@ document.addEventListener("DOMContentLoaded", () => {
                 return;
             }
             
+            // 检查主人声状态（批量模式）
+            try {
+                const masterVoiceResponse = await fetch('/api/check_master_voice', {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+                
+                if (masterVoiceResponse.ok) {
+                const masterVoiceData = await masterVoiceResponse.json();
+                if (!masterVoiceData.has_master_voice) {
+                    alert(
+                        '请先上传主人声音频！\n\n' +
+                        '主人声音频是必需的，用于提高语音识别的准确性。\n\n' +
+                        '点击确定后将跳转到主人声设置页面。'
+                    );
+                    
+                    // 强制跳转到主人声设置页面
+                    const masterVoiceTab = document.querySelector('[data-tab="master-voice"]');
+                    if (masterVoiceTab) {
+                        masterVoiceTab.click();
+                    }
+                    return;
+                }
+            }
+            } catch (error) {
+                console.error('检查主人声状态失败:', error);
+                // 如果检查失败，继续上传流程
+            }
+            
             // 显示上传进度提示
             showSuccessAlert(`正在上传 ${file.name}...`);
             
@@ -1272,4 +1432,79 @@ document.addEventListener("DOMContentLoaded", () => {
             showErrorAlert('上传过程中发生错误');
         }
     }
+    
+    // 主人声按钮事件监听器
+    const uploadMasterVoiceBtn = document.getElementById('upload-master-voice-btn');
+    const deleteMasterVoiceBtn = document.getElementById('delete-master-voice-btn');
+    
+    if (uploadMasterVoiceBtn) {
+        uploadMasterVoiceBtn.addEventListener('click', uploadMasterVoice);
+    }
+    
+    if (deleteMasterVoiceBtn) {
+        deleteMasterVoiceBtn.addEventListener('click', deleteMasterVoice);
+    }
+    
+    // 主人声文件输入事件监听器
+    const masterVoiceInput = document.getElementById('master-voice-input');
+    if (masterVoiceInput) {
+        masterVoiceInput.addEventListener('change', handleMasterVoiceFileSelect);
+    }
+    
+    // 页面加载时检查主人声状态
+    checkMasterVoiceStatus();
 });
+
+// 检查批量模式页面的主人声状态
+async function checkBatchMasterVoiceStatus() {
+    const statusElement = document.getElementById('batch-master-voice-status');
+    const textElement = document.getElementById('batch-master-voice-text');
+    const linkElement = document.getElementById('batch-master-voice-link');
+    
+    if (!statusElement || !textElement || !linkElement) {
+        return;
+    }
+    
+    try {
+        const response = await fetch('/api/check_master_voice', {
+            method: 'GET',
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('token')}`
+            }
+        });
+        
+        if (response.ok) {
+            const data = await response.json();
+            
+            // 显示状态提示
+            statusElement.style.display = 'block';
+            
+            if (data.has_master_voice) {
+                statusElement.className = 'batch-master-voice-status has-master-voice';
+                textElement.textContent = '✅ 已设置主人声音频，批量转写将自动进行预处理';
+                linkElement.textContent = '查看设置';
+            } else {
+                statusElement.className = 'batch-master-voice-status no-master-voice';
+                textElement.textContent = '⚠️ 未设置主人声音频，建议先上传以获得更好的转写效果';
+                linkElement.textContent = '立即设置';
+            }
+            
+            // 设置链接点击事件
+            linkElement.onclick = (e) => {
+                e.preventDefault();
+                // 切换到主人声设置标签页
+                const masterVoiceTab = document.querySelector('[data-tab="master-voice"]');
+                if (masterVoiceTab) {
+                    masterVoiceTab.click();
+                }
+            };
+        } else {
+            // 如果请求失败，隐藏状态提示
+            statusElement.style.display = 'none';
+        }
+    } catch (error) {
+        console.error('检查主人声状态失败:', error);
+        // 发生错误时隐藏状态提示
+        statusElement.style.display = 'none';
+    }
+}

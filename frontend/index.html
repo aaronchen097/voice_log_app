@@ -25,26 +25,16 @@
         <main class="main-content">
             <!-- 上传区域 -->
             <section class="upload-section">
-                <!-- 模式切换 -->
-                <div class="mode-switch-container">
-                    <div class="mode-switch">
-                        <label class="switch-label">
-                            <span class="mode-text">单文件模式</span>
-                            <div class="switch">
-                                <input type="checkbox" id="batch-mode-toggle">
-                                <span class="slider"></span>
-                            </div>
-                            <span class="mode-text">批量模式</span>
-                        </label>
-                    </div>
-                    <div class="mode-description">
-                        <span id="mode-desc">单文件模式：上传后立即转写和总结</span>
-                    </div>
+                <!-- 批量模式说明 -->
+                <div class="mode-description">
+                    <h3>🎵 批量音频上传</h3>
+                    <p>上传多个音频片段，统一转写和总结</p>
                 </div>
                 
                 <div class="upload-tabs">
                     <button class="tab-btn active" data-tab="file">本地文件</button>
                     <button class="tab-btn" data-tab="url">URL链接</button>
+                    <button class="tab-btn" data-tab="master-voice">主人声设置</button>
                 </div>
                 
                 <div class="tab-content" id="file-tab">
@@ -63,26 +53,88 @@
                         <button class="btn-primary" id="upload-url-btn">上传URL</button>
                     </div>
                 </div>
+                
+                <div class="tab-content hidden" id="master-voice-tab">
+                    <div class="master-voice-area">
+                        <div class="master-voice-status" id="master-voice-status">
+                            <div class="status-icon">🎤</div>
+                            <div class="status-text">
+                                <h4>主人声音频状态</h4>
+                                <p id="master-voice-info">检查中...</p>
+                            </div>
+                        </div>
+                        
+                        <div class="master-voice-upload" id="master-voice-upload">
+                            <div class="upload-description">
+                                <h4>📝 什么是主人声音频？</h4>
+                                <p>主人声音频是一段只包含您声音的音频样本，用于在批量转写时确保您的声音被正确识别为"发言人1"。</p>
+                                
+                                <div class="info-section">
+                                    <h5>📋 录制要求</h5>
+                                    <ul>
+                                        <li><strong>时长：</strong>建议录制10-30秒的清晰语音</li>
+                                        <li><strong>内容：</strong>可以是自我介绍、朗读文字或日常对话</li>
+                                        <li><strong>环境：</strong>确保环境安静，无背景噪音</li>
+                                        <li><strong>音质：</strong>声音清晰，音量适中</li>
+                                        <li><strong>格式：</strong>支持 MP3, WAV, M4A, AAC 格式</li>
+                                    </ul>
+                                </div>
+                                
+                                <div class="info-section">
+                                    <h5>✨ 最佳实践</h5>
+                                    <ul>
+                                        <li>使用手机或录音设备录制，避免电脑内置麦克风</li>
+                                        <li>保持与麦克风适当距离（约20-30厘米）</li>
+                                        <li>说话语速正常，吐字清晰</li>
+                                        <li>可以录制多个版本，选择音质最好的上传</li>
+                                    </ul>
+                                </div>
+                                
+                                <div class="info-section">
+                                    <h5>❓ 常见问题</h5>
+                                    <ul>
+                                        <li><strong>Q：</strong>不上传主人声音频会怎样？<br>
+                                            <strong>A：</strong>系统仍可正常转写，但可能无法准确区分不同发言人</li>
+                                        <li><strong>Q：</strong>可以更换主人声音频吗？<br>
+                                            <strong>A：</strong>可以，删除当前音频后重新上传即可</li>
+                                        <li><strong>Q：</strong>主人声音频会被其他人听到吗？<br>
+                                            <strong>A：</strong>不会，音频仅用于您的账户进行声音识别</li>
+                                    </ul>
+                                </div>
+                            </div>
+                            
+                            <div class="master-voice-actions">
+                                <input type="file" id="master-voice-input" accept=".mp3,.wav,.m4a,.aac" hidden>
+                                <button class="btn-primary" id="upload-master-voice-btn">上传主人声音频</button>
+                                <button class="btn-danger" id="delete-master-voice-btn" style="display: none;">删除主人声音频</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </section>
             
-            <!-- 多任务进度显示 -->
-            <section class="tasks-section" id="tasks-section">
-                <div class="tasks-header">
-                    <h3>📋 上传任务</h3>
-                    <button class="btn-secondary" id="clear-completed-btn" style="display: none;">清除已完成</button>
-                </div>
-                <div class="tasks-container" id="tasks-container">
-                    <!-- 动态生成的任务进度条将在这里显示 -->
-                </div>
-            </section>
+            <!-- 单文件任务进度显示已移除，仅保留批量模式 -->
             
             <!-- 批量模式音频片段管理 -->
-            <section class="batch-section" id="batch-section" style="display: none;">
+            <section class="batch-section" id="batch-section">
                 <div class="batch-header">
                     <h3>🎵 音频片段管理</h3>
                     <div class="batch-actions">
                         <button class="btn-primary" id="batch-process-btn" disabled>统一转写 (<span id="batch-count">0</span>个片段)</button>
                         <button class="btn-secondary" id="batch-clear-btn">清空片段</button>
+                    </div>
+                </div>
+                
+                <!-- 主人声状态提示 -->
+                <div class="batch-master-voice-status" id="batch-master-voice-status" style="display: none;">
+                    <div class="status-indicator">
+                        <span class="status-icon">🎤</span>
+                        <div class="status-content">
+                            <div class="status-text" id="batch-master-voice-text">正在检查主人声状态...</div>
+                            <div class="status-action">
+                                <a href="#" class="status-link" id="batch-master-voice-link">前往设置</a>
+                            </div>
+                        </div>
                     </div>
                 </div>
                 <div class="batch-segments" id="batch-segments">

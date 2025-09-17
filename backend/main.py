@@ -15,6 +15,9 @@ from utils import (
     load_and_index_logs,
     query_logs,
     get_latest_log_summary,
+    get_master_voice_path,
+    prepare_audio_with_master_voice,
+    cleanup_processed_audio,
     LOG_DIR
 )
 from feishu_api import authenticate_user, save_voice_log, get_feishu_client
@@ -334,17 +337,46 @@ async def batch_process_audio(current_user: UserSession = Depends(get_current_us
         
         logging.info(f"用户 {current_user.username} 开始批量处理 {len(segments)} 个音频片段")
         
+        # 检查主人声状态并记录处理模式
+        master_voice_path = get_master_voice_path(current_user.user_id)
+        has_master_voice = master_voice_path and os.path.exists(master_voice_path)
+        
+        if has_master_voice:
+            logging.info(f"用户 {current_user.username} 使用主人声预处理模式进行批量转写")
+            processing_mode = "主人声预处理模式"
+        else:
+            logging.info(f"用户 {current_user.username} 使用标准模式进行批量转写（未设置主人声）")
+            processing_mode = "标准转写模式"
+        
         # 按上传时间排序
         segments.sort(key=lambda x: x["upload_time"])
         
-        # 逐个转写音频片段
+        # 逐个转写音频片段（包含主人声预处理）
         all_transcriptions = []
         processed_files = []
         
         for i, segment in enumerate(segments):
             try:
-                logging.info(f"正在转写第 {i+1}/{len(segments)} 个片段: {segment['filename']}")
-                text = transcribe_audio(segment["filepath"])
+                logging.info(f"正在处理第 {i+1}/{len(segments)} 个片段: {segment['filename']}")
+                
+                # 根据之前检查的主人声状态进行处理
+                if has_master_voice:
+                    logging.info(f"为片段 {segment['filename']} 添加主人声前缀")
+                    # 预处理音频：在原音频前添加主人声
+                    preprocessed_path = prepare_audio_with_master_voice(
+                        segment["filepath"], 
+                        current_user.user_id
+                    )
+                    # 使用预处理后的音频进行转写
+                    text = transcribe_audio(preprocessed_path)
+                    # 清理预处理的临时文件
+                    cleanup_processed_audio(preprocessed_path)
+                    processed_files.append(preprocessed_path)
+                else:
+                    logging.info(f"未找到主人声音频，直接转写片段: {segment['filename']}")
+                    # 直接转写原音频
+                    text = transcribe_audio(segment["filepath"])
+                
                 if text and text.strip():
                     all_transcriptions.append({
                         "filename": segment["filename"],
@@ -353,7 +385,7 @@ async def batch_process_audio(current_user: UserSession = Depends(get_current_us
                     })
                 processed_files.append(segment["filepath"])
             except Exception as e:
-                logging.error(f"转写片段 {segment['filename']} 失败: {str(e)}")
+                logging.error(f"处理片段 {segment['filename']} 失败: {str(e)}")
                 # 继续处理其他片段
                 continue
         
@@ -418,7 +450,9 @@ async def batch_process_audio(current_user: UserSession = Depends(get_current_us
                 "summary": summary,
                 "capability_assessment": capability_assessment,
                 "filename": log_filename,
-                "saved_to_feishu": feishu_save_success
+                "saved_to_feishu": feishu_save_success,
+                "processing_mode": processing_mode,
+                "has_master_voice": has_master_voice
             }
         )
     except Exception as e:
@@ -625,6 +659,110 @@ async def generate_capability_assessment_endpoint(request: CapabilityAssessmentR
         logging.error(f"个人能力评估生成失败: {e}")
         raise HTTPException(status_code=500, detail="个人能力评估生成失败")
 
+# 主人声音频管理接口
+@app.post("/api/upload_master_voice", summary="上传主人声音频样本")
+async def upload_master_voice(file: UploadFile = File(...), current_user: UserSession = Depends(get_current_user)):
+    """
+    上传主人声音频样本，用于后续批量转写时的发言人识别
+    """
+    try:
+        # 检查文件类型
+        if not file.filename.lower().endswith(('.wav', '.mp3', '.m4a', '.flac')):
+            raise HTTPException(status_code=400, detail="不支持的音频格式，请上传 WAV、MP3、M4A 或 FLAC 格式")
+        
+        # 创建主人声音频存储目录
+        master_voice_dir = "master_voices"
+        os.makedirs(master_voice_dir, exist_ok=True)
+        
+        # 使用用户ID作为文件名
+        file_extension = os.path.splitext(file.filename)[1]
+        master_voice_filename = f"{current_user.user_id}{file_extension}"
+        master_voice_path = os.path.join(master_voice_dir, master_voice_filename)
+        
+        # 保存主人声音频文件
+        contents = await file.read()
+        with open(master_voice_path, "wb") as f:
+            f.write(contents)
+        
+        logging.info(f"用户 {current_user.username} 上传主人声音频: {master_voice_filename}")
+        
+        return JSONResponse(content={
+            "success": True,
+            "message": "主人声音频上传成功",
+            "filename": master_voice_filename,
+            "file_size": len(contents)
+        })
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"主人声音频上传失败: {e}")
+        raise HTTPException(status_code=500, detail=f"主人声音频上传失败: {str(e)}")
+
+@app.get("/api/check_master_voice", summary="检查用户是否已上传主人声音频")
+async def check_master_voice(current_user: UserSession = Depends(get_current_user)):
+    """
+    检查当前用户是否已上传主人声音频样本
+    """
+    try:
+        master_voice_dir = "master_voices"
+        
+        # 检查可能的音频格式
+        audio_extensions = ['.wav', '.mp3', '.m4a', '.flac']
+        master_voice_exists = False
+        master_voice_file = None
+        
+        for ext in audio_extensions:
+            potential_file = os.path.join(master_voice_dir, f"{current_user.user_id}{ext}")
+            if os.path.exists(potential_file):
+                master_voice_exists = True
+                master_voice_file = f"{current_user.user_id}{ext}"
+                break
+        
+        return JSONResponse(content={
+            "success": True,
+            "has_master_voice": master_voice_exists,
+            "master_voice_file": master_voice_file,
+            "is_first_time": not master_voice_exists
+        })
+        
+    except Exception as e:
+        logging.error(f"检查主人声音频失败: {e}")
+        raise HTTPException(status_code=500, detail=f"检查主人声音频失败: {str(e)}")
+
+@app.delete("/api/delete_master_voice", summary="删除主人声音频样本")
+async def delete_master_voice(current_user: UserSession = Depends(get_current_user)):
+    """
+    删除当前用户的主人声音频样本
+    """
+    try:
+        master_voice_dir = "master_voices"
+        audio_extensions = ['.wav', '.mp3', '.m4a', '.flac']
+        deleted_files = []
+        
+        for ext in audio_extensions:
+            file_path = os.path.join(master_voice_dir, f"{current_user.user_id}{ext}")
+            if os.path.exists(file_path):
+                os.remove(file_path)
+                deleted_files.append(f"{current_user.user_id}{ext}")
+        
+        if deleted_files:
+            logging.info(f"用户 {current_user.username} 删除主人声音频: {deleted_files}")
+            return JSONResponse(content={
+                "success": True,
+                "message": "主人声音频删除成功",
+                "deleted_files": deleted_files
+            })
+        else:
+            return JSONResponse(content={
+                "success": False,
+                "message": "未找到主人声音频文件"
+            })
+        
+    except Exception as e:
+        logging.error(f"删除主人声音频失败: {e}")
+        raise HTTPException(status_code=500, detail=f"删除主人声音频失败: {str(e)}")
+
 # 挂载静态文件目录
 app.mount("/static", StaticFiles(directory="../frontend"), name="static")
 app.mount("/frontend", StaticFiles(directory="../frontend"), name="frontend")
@@ -641,4 +779,5 @@ async def login_page():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    # 端口通过uvicorn命令行参数控制，不在代码中硬编码
+    uvicorn.run(app, host="0.0.0.0", port=31101)

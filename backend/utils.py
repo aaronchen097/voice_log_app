@@ -806,3 +806,384 @@ def generate_capability_assessment(text: str, user_context: str = "") -> str:
                 return f"个人能力评估生成失败: {error_msg}，原文长度: {len(text)}字符"
     
     return f"个人能力评估生成失败: 重试{max_retries}次后仍然失败，原文长度: {len(text)}字符"
+
+
+# 音频处理相关函数
+def concatenate_audio_with_master_voice(audio_file_path: str, master_voice_path: str, output_path: str) -> bool:
+    """
+    将主人声音频与目标音频拼接
+    
+    Args:
+        audio_file_path (str): 原始音频文件路径
+        master_voice_path (str): 主人声音频文件路径
+        output_path (str): 输出文件路径
+    
+    Returns:
+        bool: 拼接是否成功
+    """
+    try:
+        # 检查文件是否存在
+        if not os.path.exists(master_voice_path):
+            logging.error(f"主人声文件不存在: {master_voice_path}")
+            return False
+            
+        if not os.path.exists(audio_file_path):
+            logging.error(f"目标音频文件不存在: {audio_file_path}")
+            return False
+        
+        # 确保输出目录存在
+        output_dir = os.path.dirname(output_path)
+        if output_dir and not os.path.exists(output_dir):
+            os.makedirs(output_dir, exist_ok=True)
+            logging.info(f"创建输出目录: {output_dir}")
+        
+        # 检查文件格式并选择合适的处理方式
+        audio_is_wav = audio_file_path.lower().endswith('.wav')
+        audio_is_mp3 = audio_file_path.lower().endswith('.mp3')
+        master_is_wav = master_voice_path.lower().endswith('.wav')
+        master_is_mp3 = master_voice_path.lower().endswith('.mp3')
+        
+        logging.info(f"音频格式检测 - 目标音频: {'WAV' if audio_is_wav else 'MP3' if audio_is_mp3 else '未知'}, 主人声: {'WAV' if master_is_wav else 'MP3' if master_is_mp3 else '未知'}")
+        
+        # 如果两个文件都是WAV格式，或者目标音频是WAV格式，优先使用wave库
+        if audio_is_wav:
+            try:
+                import wave
+                import struct
+                
+                logging.info("使用 wave 库进行音频拼接")
+                
+                # 如果主人声是 MP3，先尝试用 pydub 转换
+                temp_master_wav = None
+                if master_voice_path.lower().endswith('.mp3'):
+                    try:
+                        from pydub import AudioSegment
+                        master_audio = AudioSegment.from_mp3(master_voice_path)
+                        # 限制为5秒
+                        if len(master_audio) > 5000:
+                            master_audio = master_audio[:5000]
+                        
+                        temp_master_wav = output_path.replace('.wav', '_temp_master.wav')
+                        master_audio.export(temp_master_wav, format="wav")
+                        master_voice_path = temp_master_wav
+                        logging.info(f"MP3 主人声转换为 WAV: {temp_master_wav}")
+                    except ImportError:
+                        logging.warning("无法转换 MP3 主人声，创建简单提示音")
+                        # 创建一个简单的提示音（1秒，440Hz 正弦波）
+                        import math
+                        sample_rate = 44100
+                        duration = 1.0  # 1秒
+                        frequency = 440  # A4音符
+                        
+                        temp_master_wav = output_path.replace('.wav', '_temp_beep.wav')
+                        
+                        # 先读取目标音频参数以匹配格式
+                        with wave.open(audio_file_path, 'rb') as target_wav:
+                            target_params = target_wav.getparams()
+                        
+                        with wave.open(temp_master_wav, 'wb') as beep_wav:
+                            beep_wav.setnchannels(target_params.nchannels)  # 匹配目标声道数
+                            beep_wav.setsampwidth(target_params.sampwidth)  # 匹配目标采样宽度
+                            beep_wav.setframerate(target_params.framerate)  # 匹配目标采样率
+                            
+                            # 生成正弦波数据（匹配目标格式）
+                            frames = []
+                            for i in range(int(target_params.framerate * duration)):
+                                value = int(16384 * math.sin(2 * math.pi * frequency * i / target_params.framerate))
+                                # 如果是立体声，复制到所有声道
+                                frame_data = struct.pack('<h', value) * target_params.nchannels
+                                frames.append(frame_data)
+                            
+                            beep_wav.writeframes(b''.join(frames))
+                        
+                        master_voice_path = temp_master_wav
+                        logging.info(f"创建提示音替代主人声: {temp_master_wav}")
+                
+                # 读取主人声 WAV 文件
+                with wave.open(master_voice_path, 'rb') as master_wav:
+                    master_params = master_wav.getparams()
+                    master_frames = master_wav.readframes(master_params.nframes)
+                
+                # 读取目标 WAV 文件
+                with wave.open(audio_file_path, 'rb') as target_wav:
+                    target_params = target_wav.getparams()
+                    target_frames = target_wav.readframes(target_params.nframes)
+                
+                # 创建静音（0.5秒）
+                silence_frames_count = int(target_params.framerate * 0.5)  # 0.5秒
+                silence_frame = struct.pack('<h', 0) * target_params.nchannels
+                silence_frames = silence_frame * silence_frames_count
+                
+                # 写入拼接后的音频
+                with wave.open(output_path, 'wb') as output_wav:
+                    output_wav.setparams(target_params)
+                    
+                    # 写入主人声（如果采样率匹配）
+                    if master_params.framerate == target_params.framerate and master_params.nchannels == target_params.nchannels:
+                        output_wav.writeframes(master_frames)
+                    else:
+                        logging.warning(f"主人声参数不匹配 (采样率: {master_params.framerate} vs {target_params.framerate}, 声道: {master_params.nchannels} vs {target_params.nchannels})，跳过主人声")
+                    
+                    # 写入静音
+                    output_wav.writeframes(silence_frames)
+                    
+                    # 写入目标音频
+                    output_wav.writeframes(target_frames)
+                
+                # 清理临时文件
+                if temp_master_wav and os.path.exists(temp_master_wav):
+                    os.remove(temp_master_wav)
+                
+                # 验证输出文件
+                if os.path.exists(output_path):
+                    output_size = os.path.getsize(output_path)
+                    logging.info(f"音频拼接成功 (wave): {output_path} (大小: {output_size} bytes)")
+                    return True
+                else:
+                    logging.error(f"输出文件未生成: {output_path}")
+                    return False
+                    
+            except Exception as wave_error:
+                logging.error(f"wave 库拼接失败: {wave_error}")
+        
+        # 如果目标音频是MP3格式，或者wave库处理失败，使用pydub处理
+        logging.info("使用 pydub 进行音频拼接")
+        try:
+            from pydub import AudioSegment
+            from pydub.utils import which
+            
+            # 检查是否有ffmpeg
+            ffmpeg_path = which("ffmpeg")
+            if not ffmpeg_path:
+                logging.warning("未找到ffmpeg，pydub功能可能受限")
+            
+            # 加载音频文件
+            logging.info(f"加载主人声文件: {master_voice_path}")
+            try:
+                master_voice = AudioSegment.from_file(master_voice_path)
+                logging.info(f"主人声音频长度: {len(master_voice)}ms")
+            except Exception as load_error:
+                logging.error(f"加载主人声文件失败: {load_error}")
+                raise load_error
+            
+            logging.info(f"加载目标音频文件: {audio_file_path}")
+            try:
+                target_audio = AudioSegment.from_file(audio_file_path)
+                logging.info(f"目标音频长度: {len(target_audio)}ms")
+            except Exception as load_error:
+                logging.error(f"加载目标音频文件失败: {load_error}")
+                raise load_error
+            
+            # 确保主人声音频不超过5秒（避免过长影响转写效果）
+            if len(master_voice) > 5000:  # 5秒 = 5000毫秒
+                logging.info(f"主人声音频过长({len(master_voice)}ms)，截取前5秒")
+                master_voice = master_voice[:5000]
+            
+            # 在主人声和目标音频之间添加短暂的静音（0.5秒）
+            silence = AudioSegment.silent(duration=500)  # 0.5秒静音
+            logging.info("添加0.5秒静音间隔")
+            
+            # 拼接音频：主人声 + 静音 + 目标音频
+            combined_audio = master_voice + silence + target_audio
+            logging.info(f"拼接后音频总长度: {len(combined_audio)}ms")
+            
+            # 导出拼接后的音频
+            logging.info(f"导出拼接后的音频到: {output_path}")
+            
+            # 根据输出路径确定格式
+            output_format = "wav" if output_path.lower().endswith('.wav') else "mp3"
+            
+            try:
+                combined_audio.export(output_path, format=output_format)
+                logging.info(f"音频导出成功，格式: {output_format}")
+            except Exception as export_error:
+                logging.error(f"音频导出失败: {export_error}")
+                # 如果导出失败，尝试使用原始格式
+                if output_format == "wav":
+                    logging.info("尝试导出为MP3格式")
+                    mp3_output = output_path.replace('.wav', '.mp3')
+                    combined_audio.export(mp3_output, format="mp3")
+                    # 重命名为原始输出路径
+                    import shutil
+                    shutil.move(mp3_output, output_path)
+                    logging.info(f"已导出为MP3并重命名: {output_path}")
+                else:
+                    raise export_error
+            
+            # 验证输出文件
+            if os.path.exists(output_path):
+                output_size = os.path.getsize(output_path)
+                logging.info(f"音频拼接成功 (pydub): {output_path} (大小: {output_size} bytes)")
+                return True
+            else:
+                logging.error(f"输出文件未生成: {output_path}")
+                return False
+                
+        except ImportError as import_error:
+            logging.error(f"pydub库导入失败: {import_error}")
+            logging.info("使用简化的MP3拼接方案")
+            
+            # 简化的MP3拼接方案：二进制文件拼接
+            try:
+                import shutil
+                
+                # 检查文件格式
+                if audio_file_path.lower().endswith('.mp3') and master_voice_path.lower().endswith('.mp3'):
+                    logging.info("执行MP3+MP3二进制拼接")
+                    
+                    # 读取主人声MP3文件（限制大小，避免过大）
+                    master_data = b''
+                    master_size = os.path.getsize(master_voice_path)
+                    max_master_size = 500 * 1024  # 限制主人声文件最大500KB
+                    
+                    with open(master_voice_path, 'rb') as master_file:
+                        if master_size > max_master_size:
+                            logging.info(f"主人声文件过大({master_size} bytes)，截取前{max_master_size} bytes")
+                            master_data = master_file.read(max_master_size)
+                        else:
+                            master_data = master_file.read()
+                    
+                    # 读取目标音频MP3文件
+                    with open(audio_file_path, 'rb') as target_file:
+                        target_data = target_file.read()
+                    
+                    # 创建静音数据（简单的零字节序列）
+                    silence_data = b'\x00' * 8192  # 8KB的静音数据
+                    
+                    # 拼接：主人声 + 静音 + 目标音频
+                    combined_data = master_data + silence_data + target_data
+                    
+                    # 写入输出文件
+                    with open(output_path, 'wb') as output_file:
+                        output_file.write(combined_data)
+                    
+                    # 验证输出文件
+                    if os.path.exists(output_path):
+                        output_size = os.path.getsize(output_path)
+                        original_size = os.path.getsize(audio_file_path)
+                        master_used_size = len(master_data)
+                        
+                        logging.info(f"MP3二进制拼接成功: {output_path}")
+                        logging.info(f"  原始目标文件: {original_size} bytes")
+                        logging.info(f"  使用的主人声: {master_used_size} bytes")
+                        logging.info(f"  输出文件大小: {output_size} bytes")
+                        logging.info(f"  大小增加: {output_size - original_size} bytes")
+                        logging.warning("注意：这是简化的二进制拼接，输出文件可能无法正常播放")
+                        logging.info("建议安装完整的音频处理库以获得更好的效果")
+                        return True
+                    else:
+                        logging.error(f"输出文件未生成: {output_path}")
+                        return False
+                        
+                elif audio_file_path.lower().endswith('.mp3'):
+                    # 如果只有目标音频是MP3，简单复制
+                    logging.info("目标音频为MP3，主人声非MP3，执行简单复制")
+                    shutil.copy2(audio_file_path, output_path)
+                    
+                    if os.path.exists(output_path):
+                        output_size = os.path.getsize(output_path)
+                        logging.info(f"音频处理完成 (复制MP3): {output_path} (大小: {output_size} bytes)")
+                        logging.info("注意：由于格式不匹配，未能拼接主人声")
+                        return True
+                    else:
+                        logging.error(f"输出文件未生成: {output_path}")
+                        return False
+                else:
+                    # 如果目标音频是WAV，直接复制
+                    logging.info("目标音频为WAV，执行简单复制")
+                    shutil.copy2(audio_file_path, output_path)
+                    
+                    if os.path.exists(output_path):
+                        output_size = os.path.getsize(output_path)
+                        logging.info(f"音频处理完成 (复制WAV): {output_path} (大小: {output_size} bytes)")
+                        return True
+                    else:
+                        logging.error(f"输出文件未生成: {output_path}")
+                        return False
+                        
+            except Exception as simple_error:
+                logging.error(f"简化处理方案失败: {simple_error}")
+                logging.error("无法进行音频拼接，所有方法都失败了")
+                return False
+        
+    except Exception as e:
+        logging.error(f"音频拼接失败: {e}")
+        return False
+
+
+def get_master_voice_path(user_id: str) -> Optional[str]:
+    """
+    获取用户的主人声音频文件路径
+    
+    Args:
+        user_id (str): 用户ID
+    
+    Returns:
+        Optional[str]: 主人声音频文件路径，如果不存在则返回None
+    """
+    master_voice_dir = "master_voices"
+    audio_extensions = ['.wav', '.mp3', '.m4a', '.flac']
+    
+    for ext in audio_extensions:
+        potential_file = os.path.join(master_voice_dir, f"{user_id}{ext}")
+        if os.path.exists(potential_file):
+            return potential_file
+    
+    return None
+
+
+def prepare_audio_with_master_voice(audio_file_path: str, user_id: str, temp_dir: str = "temp_processed") -> Optional[str]:
+    """
+    为音频文件添加主人声前缀，如果用户有主人声样本的话
+    
+    Args:
+        audio_file_path (str): 原始音频文件路径
+        user_id (str): 用户ID
+        temp_dir (str): 临时文件目录
+    
+    Returns:
+        Optional[str]: 处理后的音频文件路径，如果处理失败或无主人声样本则返回原路径
+    """
+    try:
+        # 检查用户是否有主人声样本
+        master_voice_path = get_master_voice_path(user_id)
+        if not master_voice_path:
+            logging.info(f"用户 {user_id} 未上传主人声样本，跳过音频预处理")
+            return audio_file_path
+        
+        # 创建临时处理目录
+        os.makedirs(temp_dir, exist_ok=True)
+        
+        # 生成输出文件路径
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = os.path.basename(audio_file_path)
+        name, ext = os.path.splitext(filename)
+        output_filename = f"processed_{timestamp}_{name}.wav"
+        output_path = os.path.join(temp_dir, output_filename)
+        
+        # 执行音频拼接
+        if concatenate_audio_with_master_voice(audio_file_path, master_voice_path, output_path):
+            logging.info(f"音频预处理成功: {output_path}")
+            return output_path
+        else:
+            logging.warning(f"音频预处理失败，使用原始文件: {audio_file_path}")
+            return audio_file_path
+            
+    except Exception as e:
+        logging.error(f"音频预处理过程中发生错误: {e}")
+        return audio_file_path
+
+
+def cleanup_processed_audio(file_path: str) -> None:
+    """
+    清理处理后的临时音频文件
+    
+    Args:
+        file_path (str): 要清理的文件路径
+    """
+    try:
+        if file_path and os.path.exists(file_path) and "temp_processed" in file_path:
+            os.remove(file_path)
+            logging.info(f"清理临时音频文件: {file_path}")
+    except Exception as e:
+        logging.warning(f"清理临时音频文件失败: {e}")
