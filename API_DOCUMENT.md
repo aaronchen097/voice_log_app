@@ -2,344 +2,551 @@
 
 ## 概述
 
-语音智能日志系统提供了一套完整的RESTful API接口，支持音频上传、语音转录、AI摘要生成、飞书OAuth认证和多维表格集成等功能。
+语音日志应用提供了一套完整的 RESTful API，支持异步音频处理、任务状态跟踪、用户认证等功能。所有 API 都基于 FastAPI 构建，支持高并发和异步处理。
 
 ## 基础信息
 
-- **Base URL**: `http://localhost:8000` (本地开发)
-- **Content-Type**: `application/json` (除文件上传接口外)
-- **认证方式**: 飞书OAuth 2.0
+- **基础URL**: `http://localhost:31101`
+- **API版本**: v2.0 (异步优化版)
+- **内容类型**: `application/json` (除文件上传外)
+- **认证方式**: Bearer Token
 
-## 音频处理接口
+## 认证
 
-### 1. 上传音频文件（单文件模式）
+### 获取访问令牌
 
-**接口**: `POST /upload_audio`
+**端点**: `POST /api/login`
 
-**描述**: 上传音频文件进行语音转录和AI摘要生成
+**描述**: 通过飞书OAuth获取访问令牌
 
 **请求参数**:
-- `file` (FormData): 音频文件，支持格式：wav, mp3, m4a, flac, aac, ogg
-- `user_id` (FormData, 可选): 用户ID，用于飞书多维表格关联
-
-**响应示例**:
 ```json
 {
-  "task_id": "uuid-string",
-  "message": "音频上传成功，开始处理",
-  "filename": "audio.wav"
+  "code": "string",  // 飞书OAuth授权码
+  "state": "string"  // 状态参数
 }
 ```
 
-### 2. 批量上传音频片段
-
-**接口**: `POST /api/batch_upload`
-
-**描述**: 批量上传多个音频片段，用于分段音频统一转写功能
-
-**请求参数**:
-- `file` (FormData): 音频文件，支持格式：wav, mp3, m4a, flac, aac, ogg
-- `user_id` (FormData, 可选): 用户ID，用于飞书多维表格关联
-
-**响应示例**:
+**响应**:
 ```json
 {
   "success": true,
-  "message": "音频片段上传成功",
-  "filename": "segment_001.wav",
-  "segment_id": "uuid-string"
-}
-```
-
-### 3. 统一转写批量音频
-
-**接口**: `POST /api/batch_transcribe`
-
-**描述**: 对所有已上传的音频片段进行统一转写和AI摘要生成
-
-**请求体**:
-```json
-{
-  "user_id": "ou_xxxxxxxxxxxxxxxxx"
-}
-```
-
-**响应示例**:
-```json
-{
-  "task_id": "uuid-string",
-  "message": "开始统一转写处理",
-  "segments_count": 5
-}
-```
-
-### 2. 获取任务状态
-
-**接口**: `GET /task_status/{task_id}`
-
-**描述**: 查询音频处理任务的状态和结果
-
-**路径参数**:
-- `task_id`: 任务ID
-
-**响应示例**:
-```json
-{
-  "task_id": "uuid-string",
-  "status": "completed",
-  "transcription": "转录文本内容...",
-  "summary": "AI生成的摘要内容...",
-  "capability_assessment": "个人能力评估内容...",
-  "created_at": "2024-01-01T12:00:00Z",
-  "completed_at": "2024-01-01T12:05:00Z"
-}
-```
-
-**状态值说明**:
-- `pending`: 任务排队中
-- `processing`: 正在处理
-- `completed`: 处理完成
-- `failed`: 处理失败
-
-## 飞书OAuth认证接口
-
-### 1. 发起OAuth登录
-
-**接口**: `GET /auth/login`
-
-**描述**: 重定向到飞书OAuth授权页面
-
-**响应**: 302重定向到飞书授权URL
-
-### 2. OAuth回调处理
-
-**接口**: `GET /auth/callback`
-
-**描述**: 处理飞书OAuth回调，获取用户信息
-
-**查询参数**:
-- `code`: 飞书返回的授权码
-- `state`: 状态参数（可选）
-
-**响应**: 302重定向到主页面，并设置认证Cookie
-
-### 3. 检查认证状态
-
-**接口**: `GET /auth/status`
-
-**描述**: 检查当前用户的认证状态
-
-**响应示例**:
-```json
-{
-  "authenticated": true,
-  "user_info": {
-    "user_id": "ou_xxxxxxxxxxxxxxxxx",
-    "name": "用户姓名",
+  "message": "登录成功",
+  "user": {
+    "user_id": "ou_xxxxxxxxxx",
+    "name": "用户名",
     "avatar_url": "头像URL"
   }
 }
 ```
 
-## 飞书多维表格接口
+**状态码**:
+- `200`: 登录成功
+- `400`: 参数错误
+- `401`: 认证失败
 
-### 1. 保存语音日志
+---
 
-**接口**: `POST /save_voice_log`
+## 音频处理 API
 
-**描述**: 将语音转录和AI摘要结果保存到飞书多维表格
+### 1. 单个音频处理 (异步)
 
-**请求体**:
+**端点**: `POST /api/voice_log`
+
+**描述**: 上传单个音频文件进行异步处理
+
+**请求**:
+- **Content-Type**: `multipart/form-data`
+- **参数**:
+  - `audio_file`: 音频文件 (必需)
+  - `use_master_voice`: 是否使用主声音模板 (可选, 默认false)
+
+**响应**:
 ```json
 {
-  "user_id": "ou_xxxxxxxxxxxxxxxxx",
-  "transcription": "语音转录内容",
-  "summary": "AI摘要内容",
-  "capability_assessment": "个人能力评估",
-  "audio_duration": 120,
-  "filename": "audio.wav"
+  "task_id": "550e8400-e29b-41d4-a716-446655440000",
+  "message": "任务已启动，正在后台处理"
 }
 ```
 
-**响应示例**:
+**支持的音频格式**:
+- WAV, MP3, M4A, FLAC, AAC, OGG
+- 最大文件大小: 100MB
+
+**状态码**:
+- `200`: 任务创建成功
+- `400`: 文件格式不支持或文件过大
+- `500`: 服务器内部错误
+
+### 2. 批量音频处理 (异步)
+
+**端点**: `POST /api/batch_process`
+
+**描述**: 处理用户上传的所有批量音频文件
+
+**认证**: 需要Bearer Token
+
+**响应**:
 ```json
 {
-  "success": true,
-  "record_id": "recxxxxxxxxxxxxxx",
-  "message": "语音日志保存成功"
+  "task_id": "550e8400-e29b-41d4-a716-446655440001",
+  "message": "批量处理任务已启动"
 }
 ```
 
-### 2. 获取表格字段信息（调试用）
+**状态码**:
+- `200`: 批量任务创建成功
+- `401`: 未认证或token无效
+- `400`: 没有待处理的音频文件
+- `500`: 服务器内部错误
 
-**接口**: `GET /feishu/fields`
+### 3. 批量音频上传
 
-**描述**: 获取飞书多维表格的字段信息，用于调试和字段映射
+**端点**: `POST /api/batch_upload`
 
-**响应示例**:
+**描述**: 上传多个音频文件到批量处理队列
+
+**认证**: 需要Bearer Token
+
+**请求**:
+- **Content-Type**: `multipart/form-data`
+- **参数**:
+  - `files`: 多个音频文件
+
+**响应**:
 ```json
 {
-  "fields": [
+  "message": "成功上传 3 个文件",
+  "uploaded_files": [
+    "audio1.wav",
+    "audio2.mp3",
+    "audio3.m4a"
+  ],
+  "total_files": 3
+}
+```
+
+**状态码**:
+- `200`: 上传成功
+- `401`: 未认证
+- `400`: 没有文件或格式不支持
+
+---
+
+## 任务状态 API
+
+### 查询任务状态
+
+**端点**: `GET /api/task_status/{task_id}`
+
+**描述**: 查询异步任务的处理状态和进度
+
+**认证**: 需要Bearer Token (批量任务) 或 无需认证 (单个任务)
+
+**路径参数**:
+- `task_id`: 任务ID (UUID格式)
+
+**响应**:
+
+**处理中**:
+```json
+{
+  "task_id": "550e8400-e29b-41d4-a716-446655440000",
+  "status": "processing",
+  "progress": 45,
+  "details": "正在进行语音转写..."
+}
+```
+
+**已完成**:
+```json
+{
+  "task_id": "550e8400-e29b-41d4-a716-446655440000",
+  "status": "completed",
+  "progress": 100,
+  "details": "处理完成",
+  "result": {
+    "transcription": "转写文本内容...",
+    "summary": "AI生成的摘要...",
+    "capability_assessment": "能力评估结果...",
+    "audio_duration": 120.5,
+    "created_at": "2025-01-25T10:30:00Z"
+  }
+}
+```
+
+**失败**:
+```json
+{
+  "task_id": "550e8400-e29b-41d4-a716-446655440000",
+  "status": "failed",
+  "progress": 0,
+  "details": "处理失败: 音频文件损坏",
+  "error": "AudioProcessingError: Invalid audio format"
+}
+```
+
+**状态码**:
+- `200`: 查询成功
+- `404`: 任务不存在
+- `401`: 认证失败 (批量任务)
+
+---
+
+## 数据查询 API
+
+### 1. 获取日志列表
+
+**端点**: `GET /api/logs`
+
+**描述**: 获取语音日志列表
+
+**认证**: 需要Bearer Token
+
+**查询参数**:
+- `page`: 页码 (默认1)
+- `limit`: 每页数量 (默认10, 最大100)
+- `search`: 搜索关键词 (可选)
+
+**响应**:
+```json
+{
+  "logs": [
     {
-      "field_id": "fldxxxxxxxxxxxxxx",
-      "field_name": "人员",
-      "type": 11,
-      "description": "人员字段"
+      "id": "log_001",
+      "transcription": "会议内容转写...",
+      "summary": "会议摘要...",
+      "capability_assessment": "能力评估...",
+      "audio_duration": 300.0,
+      "created_at": "2025-01-25T10:00:00Z",
+      "user_id": "ou_xxxxxxxxxx"
+    }
+  ],
+  "total": 25,
+  "page": 1,
+  "limit": 10,
+  "total_pages": 3
+}
+```
+
+### 2. 获取最新摘要
+
+**端点**: `GET /api/latest_summary`
+
+**描述**: 获取最新的AI摘要
+
+**认证**: 需要Bearer Token
+
+**响应**:
+```json
+{
+  "summary": "最新的AI摘要内容...",
+  "created_at": "2025-01-25T10:30:00Z",
+  "log_id": "log_001"
+}
+```
+
+---
+
+## 主声音管理 API
+
+### 1. 上传主声音模板
+
+**端点**: `POST /api/upload_master_voice`
+
+**描述**: 上传主声音模板文件
+
+**认证**: 需要Bearer Token
+
+**请求**:
+- **Content-Type**: `multipart/form-data`
+- **参数**:
+  - `master_voice_file`: 主声音音频文件
+
+**响应**:
+```json
+{
+  "message": "主声音模板上传成功",
+  "filename": "master_voice_20250125.wav"
+}
+```
+
+### 2. 检查主声音状态
+
+**端点**: `GET /api/master_voice_status`
+
+**描述**: 检查当前用户是否已上传主声音模板
+
+**认证**: 需要Bearer Token
+
+**响应**:
+```json
+{
+  "has_master_voice": true,
+  "filename": "master_voice_20250125.wav",
+  "uploaded_at": "2025-01-25T09:00:00Z"
+}
+```
+
+---
+
+## 批量管理 API
+
+### 1. 清空批量音频
+
+**端点**: `DELETE /api/clear_batch_audio`
+
+**描述**: 清空当前用户的所有批量音频文件
+
+**认证**: 需要Bearer Token
+
+**响应**:
+```json
+{
+  "message": "已清空所有批量音频文件",
+  "cleared_count": 5
+}
+```
+
+### 2. 获取批量音频列表
+
+**端点**: `GET /api/batch_audio_list`
+
+**描述**: 获取当前用户的批量音频文件列表
+
+**认证**: 需要Bearer Token
+
+**响应**:
+```json
+{
+  "files": [
+    {
+      "filename": "audio1.wav",
+      "size": 1024000,
+      "uploaded_at": "2025-01-25T10:00:00Z"
     },
     {
-      "field_id": "fldxxxxxxxxxxxxxx",
-      "field_name": "语音转录结果",
-      "type": 1,
-      "description": "文本字段"
+      "filename": "audio2.mp3", 
+      "size": 2048000,
+      "uploaded_at": "2025-01-25T10:01:00Z"
     }
-  ]
+  ],
+  "total_count": 2,
+  "total_size": 3072000
 }
 ```
 
-## 静态文件接口
+---
 
-### 1. 主页面
+## 系统 API
 
-**接口**: `GET /`
+### 1. 健康检查
 
-**描述**: 返回应用主页面
+**端点**: `GET /api/health`
 
-**响应**: HTML页面
+**描述**: 检查系统健康状态
 
-### 2. 静态资源
+**认证**: 无需认证
 
-**接口**: `GET /static/{file_path}`
+**响应**:
+```json
+{
+  "status": "healthy",
+  "timestamp": "2025-01-25T10:30:00Z",
+  "version": "v2.0",
+  "uptime": 3600
+}
+```
 
-**描述**: 获取静态资源文件（CSS、JS、图片等）
+### 2. 系统信息
+
+**端点**: `GET /api/info`
+
+**描述**: 获取系统基本信息
+
+**认证**: 无需认证
+
+**响应**:
+```json
+{
+  "app_name": "语音日志应用",
+  "version": "v2.0",
+  "api_version": "2.0",
+  "supported_formats": ["wav", "mp3", "m4a", "flac", "aac", "ogg"],
+  "max_file_size": "100MB",
+  "features": {
+    "async_processing": true,
+    "batch_processing": true,
+    "master_voice": true,
+    "ai_summary": true,
+    "capability_assessment": true
+  }
+}
+```
+
+---
 
 ## 错误处理
 
-### 错误响应格式
+### 标准错误响应格式
 
 ```json
 {
   "error": "错误类型",
   "message": "详细错误信息",
-  "code": "错误代码"
+  "details": "额外的错误详情",
+  "timestamp": "2025-01-25T10:30:00Z"
 }
 ```
 
 ### 常见错误码
 
-- `400`: 请求参数错误
-- `401`: 未认证或认证失败
-- `403`: 权限不足
-- `404`: 资源不存在
-- `413`: 文件过大
-- `415`: 不支持的文件格式
-- `500`: 服务器内部错误
+| 状态码 | 错误类型 | 描述 |
+|--------|----------|------|
+| 400 | Bad Request | 请求参数错误 |
+| 401 | Unauthorized | 未认证或认证失败 |
+| 403 | Forbidden | 权限不足 |
+| 404 | Not Found | 资源不存在 |
+| 413 | Payload Too Large | 文件过大 |
+| 415 | Unsupported Media Type | 不支持的文件格式 |
+| 422 | Unprocessable Entity | 请求格式正确但内容无效 |
+| 429 | Too Many Requests | 请求频率过高 |
+| 500 | Internal Server Error | 服务器内部错误 |
+| 503 | Service Unavailable | 服务暂时不可用 |
 
-## 人员字段格式说明
-
-系统支持多种人员字段格式，会自动转换为飞书API要求的格式：
-
-### 1. 字符串格式（推荐）
-```json
-"人员": "ou_xxxxxxxxxxxxxxxxx"
-```
-
-### 2. 对象数组格式
-```json
-"人员": [
-  {
-    "id": "ou_xxxxxxxxxxxxxxxxx",
-    "type": "user_id"
-  }
-]
-```
-
-### 3. 字符串数组格式
-```json
-"人员": ["ou_xxxxxxxxxxxxxxxxx"]
-```
+---
 
 ## 使用示例
 
-### JavaScript示例
+### JavaScript 示例
 
 ```javascript
-// 上传音频文件
-const formData = new FormData();
-formData.append('file', audioFile);
-formData.append('user_id', 'ou_xxxxxxxxxxxxxxxxx');
+// 1. 上传单个音频文件
+async function uploadAudio(file) {
+  const formData = new FormData();
+  formData.append('audio_file', file);
+  
+  const response = await fetch('/api/voice_log', {
+    method: 'POST',
+    body: formData
+  });
+  
+  const result = await response.json();
+  return result.task_id;
+}
 
-fetch('/upload_audio', {
-  method: 'POST',
-  body: formData
-})
-.then(response => response.json())
-.then(data => {
-  console.log('任务ID:', data.task_id);
-  // 轮询任务状态
-  checkTaskStatus(data.task_id);
-});
+// 2. 轮询任务状态
+async function pollTaskStatus(taskId) {
+  const response = await fetch(`/api/task_status/${taskId}`);
+  const status = await response.json();
+  
+  if (status.status === 'completed') {
+    console.log('处理完成:', status.result);
+    return status.result;
+  } else if (status.status === 'failed') {
+    console.error('处理失败:', status.details);
+    throw new Error(status.details);
+  } else {
+    console.log(`处理中: ${status.progress}% - ${status.details}`);
+    // 继续轮询
+    setTimeout(() => pollTaskStatus(taskId), 2000);
+  }
+}
 
-// 检查任务状态
-function checkTaskStatus(taskId) {
-  fetch(`/task_status/${taskId}`)
-  .then(response => response.json())
-  .then(data => {
-    if (data.status === 'completed') {
-      console.log('转录结果:', data.transcription);
-      console.log('AI摘要:', data.summary);
-    } else if (data.status === 'processing') {
-      // 继续轮询
-      setTimeout(() => checkTaskStatus(taskId), 2000);
+// 3. 批量处理
+async function batchProcess(token) {
+  const response = await fetch('/api/batch_process', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${token}`
     }
   });
+  
+  const result = await response.json();
+  return result.task_id;
 }
 ```
 
-### Python示例
+### Python 示例
 
 ```python
 import requests
+import time
 
-# 上传音频文件
-with open('audio.wav', 'rb') as f:
-    files = {'file': f}
-    data = {'user_id': 'ou_xxxxxxxxxxxxxxxxx'}
-    response = requests.post('http://localhost:8000/upload_audio', 
-                           files=files, data=data)
-    result = response.json()
-    task_id = result['task_id']
+# 1. 上传音频文件
+def upload_audio(file_path):
+    with open(file_path, 'rb') as f:
+        files = {'audio_file': f}
+        response = requests.post('http://localhost:31101/api/voice_log', files=files)
+        return response.json()['task_id']
 
-# 检查任务状态
-response = requests.get(f'http://localhost:8000/task_status/{task_id}')
-result = response.json()
-print(f"状态: {result['status']}")
-if result['status'] == 'completed':
-    print(f"转录结果: {result['transcription']}")
-    print(f"AI摘要: {result['summary']}")
+# 2. 轮询任务状态
+def poll_task_status(task_id, token=None):
+    headers = {}
+    if token:
+        headers['Authorization'] = f'Bearer {token}'
+    
+    while True:
+        response = requests.get(f'http://localhost:31101/api/task_status/{task_id}', headers=headers)
+        status = response.json()
+        
+        if status['status'] == 'completed':
+            return status['result']
+        elif status['status'] == 'failed':
+            raise Exception(status['details'])
+        else:
+            print(f"处理中: {status['progress']}% - {status['details']}")
+            time.sleep(2)
+
+# 3. 完整流程
+def process_audio(file_path):
+    task_id = upload_audio(file_path)
+    result = poll_task_status(task_id)
+    print("转写结果:", result['transcription'])
+    print("AI摘要:", result['summary'])
+    return result
 ```
+
+---
+
+## 性能指标
+
+### 并发能力
+- **最大并发用户**: 10+
+- **单个请求响应时间**: < 100ms
+- **批量处理吞吐量**: 5-10 文件/分钟
+- **任务状态查询**: < 50ms
+
+### 文件限制
+- **单文件大小**: 最大 100MB
+- **批量文件数量**: 最大 20 个文件
+- **支持格式**: WAV, MP3, M4A, FLAC, AAC, OGG
+- **音频时长**: 建议 < 60 分钟
+
+### 存储和缓存
+- **任务状态缓存**: 24 小时
+- **临时文件清理**: 处理完成后自动清理
+- **日志保留**: 永久保存 (可配置)
+
+---
 
 ## 更新日志
 
-### v1.3.0 (2024-01-20)
-- 🆕 新增分段音频统一转写功能
-- 🆕 新增批量上传接口 `POST /api/batch_upload`
-- 🆕 新增统一转写接口 `POST /api/batch_transcribe`
-- 🔄 前端支持双模式切换（单文件模式/批量模式）
-- 🎨 优化用户界面，新增批量模式UI组件
-- 🐛 修复前端提示函数未定义的问题
+### v2.0 (2025-01-25)
+- ✅ 新增异步处理架构
+- ✅ 添加任务状态跟踪API
+- ✅ 优化并发性能
+- ✅ 改进错误处理机制
+- ✅ 增强前端轮询功能
 
-### v1.2.0 (2024-01-15)
-- 新增飞书多维表格集成功能
-- 优化人员字段格式处理，支持多种格式自动转换
-- 新增个人能力评估功能
-- 完善错误处理机制
+### v1.0 (2024-12-01)
+- ✅ 基础语音转写功能
+- ✅ AI摘要生成
+- ✅ 飞书集成
+- ✅ 批量处理支持
 
-### v1.1.0 (2024-01-10)
-- 新增飞书OAuth认证功能
-- 优化音频处理流程
-- 新增任务状态查询接口
+---
 
-### v1.0.0 (2024-01-01)
-- 初始版本发布
-- 基础音频上传和转录功能
-- AI摘要生成功能
+**文档版本**: v2.0  
+**最后更新**: 2025-01-25  
+**维护者**: 开发团队

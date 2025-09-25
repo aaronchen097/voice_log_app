@@ -189,10 +189,10 @@ def init_parameters(file_url: str) -> Dict[str, Any]:
     parameters['Transcription'] = transcription
 
     # 其他可选参数
-    parameters['AutoChaptersEnabled'] = True  # 开启章节速览
-    parameters['TextPolishEnabled'] = True    # 开启口语书面化
-    parameters['SummaryEnabled'] = True        # 开启智能总结
-    parameters['MeetingAssistanceEnabled'] = True  # 开启会议助手
+    parameters['AutoChaptersEnabled'] = False  # 开启章节速览
+    parameters['TextPolishEnabled'] = False    # 开启口语书面化
+    parameters['SummaryEnabled'] = False        # 开启智能总结
+    parameters['MeetingAssistanceEnabled'] = False  # 开启会议助手
 
     body['Parameters'] = parameters
     return body
@@ -358,9 +358,9 @@ def download_and_parse_transcription(transcription_url: str) -> str:
         return "转录文件解析失败"
 
 
-def transcribe_audio(file_path: str) -> Optional[str]:
+async def transcribe_audio(file_path: str) -> Optional[str]:
     """
-    核心业务流程：上传、转录、获取结果
+    核心业务流程：上传、转录、获取结果（异步版本）
     
     Args:
         file_path (str): 本地音频文件路径
@@ -369,7 +369,7 @@ def transcribe_audio(file_path: str) -> Optional[str]:
         str: 转录结果文本，失败时返回None
     """
     import logging
-    import time
+    import asyncio
     logger = logging.getLogger(__name__)
     
     try:
@@ -386,7 +386,7 @@ def transcribe_audio(file_path: str) -> Optional[str]:
             logger.error("提交转录任务失败，中止流程")
             return None
             
-        # 3. 轮询任务结果
+        # 3. 轮询任务结果（异步版本）
         max_retries = 30  # 最大轮询次数
         retry_interval = 120  # 轮询间隔（秒）- 修改为2分钟
         
@@ -420,17 +420,17 @@ def transcribe_audio(file_path: str) -> Optional[str]:
                     logger.error(f"任务 {task_id} 无效")
                     return "任务无效，请检查输入参数"
                 
-                # 如果任务仍在运行，则等待后继续
+                # 如果任务仍在运行，则等待后继续（使用异步sleep）
                 elif task_status == 'ONGOING':
                     logger.info(f"任务 {task_id} 仍在处理中，状态: {task_status}，将在 {retry_interval} 秒后重试")
-                    time.sleep(retry_interval)
+                    await asyncio.sleep(retry_interval)
                 
                 else:
                     logger.warning(f"任务 {task_id} 出现未知状态: {task_status}")
-                    time.sleep(retry_interval)
+                    await asyncio.sleep(retry_interval)
             else:
                 logger.error(f"查询任务 {task_id} 状态失败，将在 {retry_interval} 秒后重试")
-                time.sleep(retry_interval)
+                await asyncio.sleep(retry_interval)
 
         logger.error(f"任务 {task_id} 超时，轮询 {max_retries} 次后仍未完成")
         return "任务处理超时"

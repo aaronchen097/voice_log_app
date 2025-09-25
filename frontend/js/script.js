@@ -1,3 +1,8 @@
+// 获取认证token - 移到全局作用域
+function getAuthToken() {
+    return localStorage.getItem('sessionToken') || '';
+}
+
 document.addEventListener("DOMContentLoaded", () => {
     // 如果当前是登录页面，则不执行后续的认证检查和功能初始化
     if (window.location.pathname === '/login' || window.location.pathname === '/login.html') {
@@ -12,11 +17,6 @@ document.addEventListener("DOMContentLoaded", () => {
     let batchSegments = [];
     
     // DOM元素引用已移至需要时获取，避免页面加载时元素不存在的问题
-
-    // 获取认证token
-    function getAuthToken() {
-        return localStorage.getItem('sessionToken') || '';
-    }
     
     // 验证token有效性
     // Token验证缓存
@@ -1280,15 +1280,12 @@ document.addEventListener("DOMContentLoaded", () => {
             
             if (response.ok) {
                 const data = await response.json();
-                if (data.success) {
-                    const modeText = data.has_master_voice ? '（已使用主人声预处理）' : '（标准转写模式）';
-                    showSuccessAlert(`批量处理完成！共处理 ${data.processed_count} 个音频片段 ${modeText}`);
-                    batchSegments = [];
-                    updateBatchUI();
-                    // 刷新批量模式页面的主人声状态显示
-                    checkBatchMasterVoiceStatus();
+                if (data.success && data.task_id) {
+                    // 异步任务已启动，开始轮询状态
+                    showSuccessAlert('批量处理任务已启动，正在后台处理...');
+                    await pollTaskStatus(data.task_id, '批量处理');
                 } else {
-                    showErrorAlert(data.error || '批量处理失败');
+                    showErrorAlert(data.error || '批量处理启动失败');
                 }
             } else {
                 const errorData = await response.json();
@@ -1454,6 +1451,195 @@ document.addEventListener("DOMContentLoaded", () => {
     // 页面加载时检查主人声状态
     checkMasterVoiceStatus();
 });
+
+// 轮询任务状态
+async function pollTaskStatus(taskId, taskName = '任务') {
+    const maxAttempts = 120; // 最多轮询2分钟 (120 * 1秒)
+    let attempts = 0;
+    
+    // 创建进度显示元素
+    const progressContainer = createProgressDisplay(taskName);
+    
+    const poll = async () => {
+        attempts++;
+        
+        try {
+            const token = getAuthToken();
+            const response = await fetch(`/api/task_status/${taskId}`, {
+                method: 'GET',
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            });
+            
+            if (response.ok) {
+                const data = await response.json();
+                
+                // 更新进度显示
+                updateProgressDisplay(progressContainer, data);
+                
+                if (data.status === 'completed') {
+                    // 任务完成
+                    removeProgressDisplay(progressContainer);
+                    
+                    if (data.result && data.result.success) {
+                        const result = data.result;
+                        if (result.processed_count !== undefined) {
+                            // 批量处理完成
+                            const modeText = result.has_master_voice ? '（已使用主人声预处理）' : '（标准转写模式）';
+                            showSuccessAlert(`${taskName}完成！共处理 ${result.processed_count} 个音频片段 ${modeText}`);
+                            batchSegments = [];
+                            updateBatchUI();
+                            checkBatchMasterVoiceStatus();
+                        } else {
+                            // 单个音频处理完成
+                            showSuccessAlert(`${taskName}完成！`);
+                        }
+                    } else {
+                        showErrorAlert(data.error || `${taskName}失败`);
+                    }
+                    return;
+                } else if (data.status === 'failed') {
+                    // 任务失败
+                    removeProgressDisplay(progressContainer);
+                    showErrorAlert(data.error || `${taskName}失败`);
+                    return;
+                } else if (data.status === 'running') {
+                    // 任务仍在运行，继续轮询
+                    if (attempts < maxAttempts) {
+                        setTimeout(poll, 1000); // 1秒后再次轮询
+                    } else {
+                        removeProgressDisplay(progressContainer);
+                        showErrorAlert(`${taskName}超时，请稍后查看结果`);
+                    }
+                }
+            } else {
+                throw new Error(`查询任务状态失败: ${response.status}`);
+            }
+        } catch (error) {
+            console.error('轮询任务状态失败:', error);
+            if (attempts < maxAttempts) {
+                setTimeout(poll, 2000); // 出错时2秒后重试
+            } else {
+                removeProgressDisplay(progressContainer);
+                showErrorAlert(`${taskName}状态查询失败`);
+            }
+        }
+    };
+    
+    // 开始轮询
+    poll();
+}
+
+// 创建进度显示元素
+function createProgressDisplay(taskName) {
+    const container = document.createElement('div');
+    container.className = 'task-progress-container';
+    container.innerHTML = `
+        <div class="task-progress-header">
+            <span class="task-name">${taskName}进度</span>
+            <span class="task-status">准备中...</span>
+        </div>
+        <div class="progress-bar">
+            <div class="progress-fill" style="width: 0%"></div>
+        </div>
+        <div class="task-details"></div>
+    `;
+    
+    // 添加样式
+    container.style.cssText = `
+        position: fixed;
+        top: 80px;
+        right: 20px;
+        background: white;
+        border: 1px solid #ddd;
+        border-radius: 8px;
+        padding: 15px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        z-index: 9998;
+        min-width: 300px;
+        max-width: 400px;
+    `;
+    
+    // 添加进度条样式
+    if (!document.querySelector('#progress-styles')) {
+        const style = document.createElement('style');
+        style.id = 'progress-styles';
+        style.textContent = `
+            .task-progress-header {
+                display: flex;
+                justify-content: space-between;
+                margin-bottom: 10px;
+                font-weight: 500;
+            }
+            .task-name {
+                color: #333;
+            }
+            .task-status {
+                color: #666;
+                font-size: 0.9em;
+            }
+            .progress-bar {
+                width: 100%;
+                height: 8px;
+                background: #f0f0f0;
+                border-radius: 4px;
+                overflow: hidden;
+                margin-bottom: 10px;
+            }
+            .progress-fill {
+                height: 100%;
+                background: linear-gradient(90deg, #4CAF50, #45a049);
+                transition: width 0.3s ease;
+            }
+            .task-details {
+                font-size: 0.9em;
+                color: #666;
+                line-height: 1.4;
+            }
+        `;
+        document.head.appendChild(style);
+    }
+    
+    document.body.appendChild(container);
+    return container;
+}
+
+// 更新进度显示
+function updateProgressDisplay(container, taskData) {
+    const statusElement = container.querySelector('.task-status');
+    const progressFill = container.querySelector('.progress-fill');
+    const detailsElement = container.querySelector('.task-details');
+    
+    // 更新状态
+    statusElement.textContent = taskData.status === 'running' ? '处理中...' : taskData.status;
+    
+    // 更新进度条
+    const progress = taskData.progress || 0;
+    progressFill.style.width = `${progress}%`;
+    
+    // 更新详细信息
+    if (taskData.current_step) {
+        detailsElement.textContent = taskData.current_step;
+    }
+    
+    // 如果有详细信息，显示更多内容
+    if (taskData.details) {
+        detailsElement.innerHTML = `
+            <div>${taskData.current_step || ''}</div>
+            <div style="margin-top: 5px; font-size: 0.8em; color: #888;">
+                ${taskData.details}
+            </div>
+        `;
+    }
+}
+
+// 移除进度显示
+function removeProgressDisplay(container) {
+    if (container && container.parentNode) {
+        container.parentNode.removeChild(container);
+    }
+}
 
 // 检查批量模式页面的主人声状态
 async function checkBatchMasterVoiceStatus() {

@@ -7,6 +7,8 @@ from typing import Optional, Dict, Any
 import os
 from datetime import datetime
 import logging
+import uuid
+import asyncio
 from dotenv import load_dotenv
 from utils import (
     transcribe_audio,
@@ -61,7 +63,7 @@ _validate_env()
 app = FastAPI(
     title="语音智能日志 API",
     description="一个集成了语音识别、智能摘要和日志查询功能的智能日志系统",
-    version="1.2.0",
+    version="3.0.0",
 )
 
 # 允许所有来源的跨域请求（在生产环境中应配置得更严格）
@@ -78,6 +80,26 @@ os.makedirs(LOG_DIR, exist_ok=True)
 
 # 加载并索引现有的日志文件
 index, documents = load_and_index_logs()
+
+# 全局任务存储
+task_storage = {}
+
+# 任务状态枚举
+class TaskStatus:
+    PENDING = "pending"
+    PROCESSING = "processing"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+# 任务信息模型
+class TaskInfo(BaseModel):
+    task_id: str
+    status: str
+    progress: int = 0
+    message: str = ""
+    result: Optional[Dict[str, Any]] = None
+    created_at: str
+    updated_at: str
 
 # 用户会话模型
 class UserSession(BaseModel):
@@ -141,91 +163,40 @@ def get_current_user(authorization: str = Header(None)):
 @app.post("/api/voice_log", summary="上传语音文件并生成日志")
 async def create_voice_log(file: UploadFile = File(...), current_user: UserSession = Depends(get_current_user)):
     """
-    接收一个音频文件，进行以下处理：
-    1.  **语音转文字**：将音频内容转换为文本。
-    2.  **生成摘要**：对识别出的文本进行智能摘要。
-    3.  **保存日志**：将文本和摘要保存为 Markdown 格式的日志文件。
-    4.  **保存到飞书**：将日志保存到飞书多维表格。
-    5.  **更新索引**：将新生成的日志文件加入到检索引擎中。
+    接收一个音频文件，进行异步处理：
+    1. 立即返回任务ID
+    2. 后台异步处理语音转文字、生成摘要等
+    3. 客户端可通过任务ID查询处理状态
     """
     try:
+        # 生成任务ID
+        task_id = str(uuid.uuid4())
+        
         # 读取上传的音频文件
         contents = await file.read()
         
-        # 保存临时文件
-        temp_dir = "temp_uploads"
-        os.makedirs(temp_dir, exist_ok=True)
-        temp_filename = f"temp_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{file.filename}"
-        temp_filepath = os.path.join(temp_dir, temp_filename)
+        # 初始化任务状态
+        task_storage[task_id] = {
+            "status": TaskStatus.PENDING,
+            "progress": 0,
+            "message": "任务已创建，等待处理",
+            "result": None,
+            "created_at": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            "updated_at": datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        }
         
-        with open(temp_filepath, "wb") as temp_file:
-            temp_file.write(contents)
-
-        logging.info(f"用户 {current_user.username} 开始处理音频文件: {temp_filename}")
-
-        # 1. 语音转文字
-        text = transcribe_audio(temp_filepath)
+        # 启动后台异步任务
+        asyncio.create_task(process_voice_log_async(contents, file.filename, current_user, task_id))
         
-        # 清理临时文件
-        try:
-            os.remove(temp_filepath)
-        except:
-            pass
-            
-        if not text:
-            raise HTTPException(status_code=400, detail="无法识别音频内容")
-
-        # 2. 生成摘要
-        summary = get_summary(text)
+        return JSONResponse(content={
+            "success": True,
+            "message": "音频文件上传成功，正在后台处理",
+            "task_id": task_id
+        })
         
-        # 3. 生成个人能力评估
-        capability_assessment = generate_capability_assessment(text, f"用户: {current_user.username}")
-
-        # 4. 保存到飞书多维表格
-        feishu_save_success = save_voice_log(
-            content=summary,  # 日志内容字段存储AI智能摘要
-            user_id=current_user.user_id,
-            transcription=text,
-            summary=summary,
-            capability_assessment=capability_assessment
-        )
-
-        # 5. 保存本地日志
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        log_filename = f"log_{timestamp}.md"
-        log_filepath = os.path.join(LOG_DIR, log_filename)
-        with open(log_filepath, "w", encoding="utf-8") as f:
-            f.write(f"# {summary}\n\n")
-            f.write(f"**用户:** {current_user.username}\n\n")
-            f.write(f"**时间:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
-            f.write(f"**文件名:** {file.filename}\n\n")
-            f.write(f"## 识别内容\n\n")
-            f.write(f"{text}\n")
-
-        # 6. 更新全局索引
-        global index, documents
-        new_index, new_documents = load_and_index_logs()
-        index = new_index
-        documents = new_documents
-
-        logging.info(f"用户 {current_user.username} 音频文件处理完成: {file.filename}")
-
-        return JSONResponse(
-            content={
-                "success": True,
-                "text": text, 
-                "summary": summary,
-                "capability_assessment": capability_assessment,
-                "filename": log_filename,
-                "saved_to_feishu": feishu_save_success
-            }
-        )
     except Exception as e:
-        logging.error(f"用户 {current_user.username if 'current_user' in locals() else 'unknown'} 上传过程发生错误: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        return JSONResponse(content={"success": False, "error": str(e)}, status_code=500)
-
+        logging.error(f"用户 {current_user.username} 上传音频文件失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"上传失败: {str(e)}")
 @app.post("/api/batch_upload", summary="批量模式：上传音频片段")
 async def batch_upload_audio(file: UploadFile = File(...), current_user: UserSession = Depends(get_current_user)):
     """
@@ -322,10 +293,10 @@ async def get_batch_audio_list(current_user: UserSession = Depends(get_current_u
 @app.post("/api/batch_process", summary="批量模式：统一转写所有音频片段")
 async def batch_process_audio(current_user: UserSession = Depends(get_current_user)):
     """
-    统一处理用户的所有音频片段：按顺序转写后拼接，然后进行AI总结
+    启动批量音频处理的异步任务
     """
     try:
-        segments = getattr(current_user, 'batch_audio_segments', [])
+        segments = current_user.batch_audio_segments
         if not segments:
             return JSONResponse(
                 status_code=400,
@@ -335,138 +306,34 @@ async def batch_process_audio(current_user: UserSession = Depends(get_current_us
                 }
             )
         
-        logging.info(f"用户 {current_user.username} 开始批量处理 {len(segments)} 个音频片段")
+        # 生成任务ID
+        task_id = str(uuid.uuid4())
         
-        # 检查主人声状态并记录处理模式
-        master_voice_path = get_master_voice_path(current_user.user_id)
-        has_master_voice = master_voice_path and os.path.exists(master_voice_path)
+        # 初始化任务状态
+        task_storage[task_id] = {
+            "status": TaskStatus.PENDING,
+            "progress": 0,
+            "message": "批量处理任务已创建，等待处理",
+            "result": None,
+            "created_at": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            "updated_at": datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        }
         
-        if has_master_voice:
-            logging.info(f"用户 {current_user.username} 使用主人声预处理模式进行批量转写")
-            processing_mode = "主人声预处理模式"
-        else:
-            logging.info(f"用户 {current_user.username} 使用标准模式进行批量转写（未设置主人声）")
-            processing_mode = "标准转写模式"
+        # 启动后台异步任务
+        asyncio.create_task(process_batch_audio_async(current_user, task_id))
         
-        # 按上传时间排序
-        segments.sort(key=lambda x: x["upload_time"])
+        logging.info(f"用户 {current_user.username} 开始批量处理 {len(segments)} 个音频片段，任务ID: {task_id}")
         
-        # 逐个转写音频片段（包含主人声预处理）
-        all_transcriptions = []
-        processed_files = []
+        return JSONResponse(content={
+            "success": True,
+            "message": f"批量处理任务已启动，共 {len(segments)} 个音频片段",
+            "task_id": task_id,
+            "segments_count": len(segments)
+        })
         
-        for i, segment in enumerate(segments):
-            try:
-                logging.info(f"正在处理第 {i+1}/{len(segments)} 个片段: {segment['filename']}")
-                
-                # 根据之前检查的主人声状态进行处理
-                if has_master_voice:
-                    logging.info(f"为片段 {segment['filename']} 添加主人声前缀")
-                    # 预处理音频：在原音频前添加主人声
-                    preprocessed_path = prepare_audio_with_master_voice(
-                        segment["filepath"], 
-                        current_user.user_id
-                    )
-                    # 使用预处理后的音频进行转写
-                    text = transcribe_audio(preprocessed_path)
-                    # 清理预处理的临时文件
-                    cleanup_processed_audio(preprocessed_path)
-                    processed_files.append(preprocessed_path)
-                else:
-                    logging.info(f"未找到主人声音频，直接转写片段: {segment['filename']}")
-                    # 直接转写原音频
-                    text = transcribe_audio(segment["filepath"])
-                
-                if text and text.strip():
-                    all_transcriptions.append({
-                        "filename": segment["filename"],
-                        "text": text.strip(),
-                        "segment_id": segment["segment_id"]
-                    })
-                processed_files.append(segment["filepath"])
-            except Exception as e:
-                logging.error(f"处理片段 {segment['filename']} 失败: {str(e)}")
-                # 继续处理其他片段
-                continue
-        
-        if not all_transcriptions:
-            raise Exception("所有音频片段转写失败")
-        
-        # 拼接所有转写结果
-        combined_text = "\n\n".join([f"【{trans['filename']}】\n{trans['text']}" for trans in all_transcriptions])
-        
-        # 生成基于完整文字稿的AI摘要（使用日报模式，适合批量音频内容）
-        summary = get_summary(combined_text, "day_report")
-        
-        # 生成个人能力评估
-        capability_assessment = generate_capability_assessment(combined_text, f"用户: {current_user.username}")
-        
-        # 保存到飞书多维表格
-        feishu_save_success = save_voice_log(
-            content=summary,  # 日志内容字段存储AI智能摘要
-            user_id=current_user.user_id,
-            transcription=combined_text,
-            summary=summary,
-            capability_assessment=capability_assessment
-        )
-        
-        # 保存本地日志
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        log_filename = f"batch_log_{timestamp}.md"
-        log_filepath = os.path.join(LOG_DIR, log_filename)
-        with open(log_filepath, "w", encoding="utf-8") as f:
-            f.write(f"# {summary}\n\n")
-            f.write(f"**用户:** {current_user.username}\n\n")
-            f.write(f"**时间:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
-            f.write(f"**音频片段数量:** {len(all_transcriptions)}\n\n")
-            f.write(f"**文件列表:** {', '.join([trans['filename'] for trans in all_transcriptions])}\n\n")
-            f.write(f"## 完整转写内容\n\n")
-            f.write(f"{combined_text}\n")
-        
-        # 清理临时文件
-        for filepath in processed_files:
-            try:
-                if os.path.exists(filepath):
-                    os.remove(filepath)
-            except Exception as e:
-                logging.warning(f"清理临时文件失败 {filepath}: {str(e)}")
-        
-        # 清空用户的批量音频片段列表
-        current_user.batch_audio_segments = []
-        
-        # 更新全局索引
-        global index, documents
-        new_index, new_documents = load_and_index_logs()
-        index = new_index
-        documents = new_documents
-        
-        logging.info(f"用户 {current_user.username} 批量处理完成，共处理 {len(all_transcriptions)} 个音频片段")
-        
-        return JSONResponse(
-            content={
-                "success": True,
-                "processed_count": len(all_transcriptions),
-                "combined_text": combined_text,
-                "summary": summary,
-                "capability_assessment": capability_assessment,
-                "filename": log_filename,
-                "saved_to_feishu": feishu_save_success,
-                "processing_mode": processing_mode,
-                "has_master_voice": has_master_voice
-            }
-        )
     except Exception as e:
-        logging.error(f"用户 {current_user.username if 'current_user' in locals() else 'unknown'} 批量处理过程发生错误: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        return JSONResponse(
-            status_code=500,
-            content={
-                "success": False,
-                "error": str(e)
-            }
-        )
-
+        logging.error(f"用户 {current_user.username} 启动批量处理失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"启动批量处理失败: {str(e)}")
 @app.delete("/api/batch_clear", summary="清空当前批次的音频片段")
 async def clear_batch_audio(current_user: UserSession = Depends(get_current_user)):
     """
@@ -763,6 +630,287 @@ async def delete_master_voice(current_user: UserSession = Depends(get_current_us
         logging.error(f"删除主人声音频失败: {e}")
         raise HTTPException(status_code=500, detail=f"删除主人声音频失败: {str(e)}")
 
+@app.get("/api/task_status/{task_id}", summary="查询任务状态")
+async def get_task_status(task_id: str, current_user: UserSession = Depends(get_current_user)):
+    """
+    查询指定任务的状态和进度
+    """
+    try:
+        if task_id not in task_storage:
+            raise HTTPException(status_code=404, detail="任务不存在")
+        
+        task_info = task_storage[task_id]
+        return JSONResponse(content={
+            "success": True,
+            "task_id": task_id,
+            "status": task_info["status"],
+            "progress": task_info["progress"],
+            "message": task_info["message"],
+            "result": task_info["result"],
+            "created_at": task_info["created_at"],
+            "updated_at": task_info["updated_at"]
+        })
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"查询任务状态失败: {e}")
+        raise HTTPException(status_code=500, detail=f"查询任务状态失败: {str(e)}")
+
+def update_task_status(task_id: str, status: str, progress: int = 0, message: str = "", result: Optional[Dict[str, Any]] = None):
+    """
+    更新任务状态
+    """
+    if task_id in task_storage:
+        task_storage[task_id].update({
+            "status": status,
+            "progress": progress,
+            "message": message,
+            "result": result,
+            "updated_at": datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        })
+
+async def process_batch_audio_async(current_user: UserSession, task_id: str):
+    """
+    异步处理批量音频的后台任务
+    """
+    try:
+        update_task_status(task_id, TaskStatus.PROCESSING, 5, "开始批量处理音频")
+        
+        # 获取用户的音频片段
+        segments = current_user.batch_audio_segments
+        
+        if not segments:
+            update_task_status(task_id, TaskStatus.FAILED, 0, "没有找到待处理的音频片段")
+            return
+        
+        update_task_status(task_id, TaskStatus.PROCESSING, 10, f"找到 {len(segments)} 个音频片段，检查主人声")
+        
+        # 检查是否有主人声音频
+        has_master_voice = get_master_voice_path(current_user.user_id) is not None
+        
+        if has_master_voice:
+            processing_mode = "主人声增强模式"
+        else:
+            processing_mode = "标准转写模式"
+        
+        update_task_status(task_id, TaskStatus.PROCESSING, 15, f"使用{processing_mode}，开始逐个转写")
+        
+        # 按上传时间排序
+        segments.sort(key=lambda x: x["upload_time"])
+        
+        # 逐个转写音频片段（包含主人声预处理）
+        all_transcriptions = []
+        processed_files = []
+        
+        for i, segment in enumerate(segments):
+            try:
+                progress = 15 + (i / len(segments)) * 60  # 15-75%的进度用于转写
+                update_task_status(task_id, TaskStatus.PROCESSING, int(progress), 
+                                 f"正在处理第 {i+1}/{len(segments)} 个片段: {segment['filename']}")
+                
+                logging.info(f"正在处理第 {i+1}/{len(segments)} 个片段: {segment['filename']}")
+                
+                # 根据之前检查的主人声状态进行处理
+                if has_master_voice:
+                    logging.info(f"为片段 {segment['filename']} 添加主人声前缀")
+                    # 预处理音频：在原音频前添加主人声
+                    preprocessed_path = prepare_audio_with_master_voice(
+                        segment["filepath"], 
+                        current_user.user_id
+                    )
+                    # 使用预处理后的音频进行转写
+                    text = await transcribe_audio(preprocessed_path)
+                    # 清理预处理的临时文件
+                    cleanup_processed_audio(preprocessed_path)
+                    processed_files.append(preprocessed_path)
+                else:
+                    logging.info(f"未找到主人声音频，直接转写片段: {segment['filename']}")
+                    # 直接转写原音频
+                    text = await transcribe_audio(segment["filepath"])
+                
+                if text and text.strip():
+                    all_transcriptions.append({
+                        "filename": segment["filename"],
+                        "text": text.strip(),
+                        "segment_id": segment["segment_id"]
+                    })
+                processed_files.append(segment["filepath"])
+            except Exception as e:
+                logging.error(f"处理片段 {segment['filename']} 失败: {str(e)}")
+                # 继续处理其他片段
+                continue
+        
+        if not all_transcriptions:
+            update_task_status(task_id, TaskStatus.FAILED, 0, "所有音频片段转写失败")
+            return
+        
+        update_task_status(task_id, TaskStatus.PROCESSING, 80, "转写完成，生成摘要")
+        
+        # 拼接所有转写结果
+        combined_text = "\n\n".join([f"【{trans['filename']}】\n{trans['text']}" for trans in all_transcriptions])
+        
+        # 生成基于完整文字稿的AI摘要（使用日报模式，适合批量音频内容）
+        summary = get_summary(combined_text, "day_report")
+        
+        update_task_status(task_id, TaskStatus.PROCESSING, 90, "生成能力评估")
+        
+        # 生成个人能力评估
+        capability_assessment = generate_capability_assessment(combined_text, f"用户: {current_user.username}")
+        
+        update_task_status(task_id, TaskStatus.PROCESSING, 95, "保存到飞书和本地")
+        
+        # 保存到飞书多维表格
+        feishu_save_success = save_voice_log(
+            content=summary,  # 日志内容字段存储AI智能摘要
+            user_id=current_user.user_id,
+            transcription=combined_text,
+            summary=summary,
+            capability_assessment=capability_assessment
+        )
+
+        # 保存本地日志文件
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        log_filename = f"batch_log_{timestamp}.md"
+        log_filepath = os.path.join(LOG_DIR, log_filename)
+        
+        with open(log_filepath, "w", encoding="utf-8") as f:
+            f.write(f"# {summary}\n\n")
+            f.write(f"**用户:** {current_user.username}\n\n")
+            f.write(f"**时间:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
+            f.write(f"**处理模式:** {processing_mode}\n\n")
+            f.write(f"**音频片段数量:** {len(all_transcriptions)}\n\n")
+            f.write(f"## 完整转写内容\n\n")
+            f.write(f"{combined_text}\n\n")
+            f.write(f"## AI智能摘要\n\n")
+            f.write(f"{summary}\n\n")
+            f.write(f"## 个人能力评估\n\n")
+            f.write(f"{capability_assessment}\n")
+
+        # 清理临时文件
+        for filepath in processed_files:
+            try:
+                if os.path.exists(filepath):
+                    os.remove(filepath)
+            except Exception as e:
+                logging.warning(f"清理临时文件失败 {filepath}: {e}")
+
+        # 清空用户的批量音频片段
+        current_user.batch_audio_segments.clear()
+
+        # 更新全局索引
+        global index, documents
+        new_index, new_documents = load_and_index_logs()
+        index = new_index
+        documents = new_documents
+
+        # 任务完成
+        result = {
+            "transcription": combined_text,
+            "summary": summary,
+            "capability_assessment": capability_assessment,
+            "filename": log_filename,
+            "saved_to_feishu": feishu_save_success,
+            "processing_mode": processing_mode,
+            "segments_count": len(all_transcriptions)
+        }
+        
+        update_task_status(task_id, TaskStatus.COMPLETED, 100, "批量处理完成", result)
+        logging.info(f"用户 {current_user.username} 批量音频处理完成: {log_filename}")
+
+    except Exception as e:
+        logging.error(f"用户 {current_user.username} 批量音频处理失败: {str(e)}")
+        update_task_status(task_id, TaskStatus.FAILED, 0, f"处理失败: {str(e)}")
+
+async def process_voice_log_async(file_content: bytes, filename: str, current_user: UserSession, task_id: str):
+    """
+    异步处理语音日志的后台任务
+    """
+    try:
+        update_task_status(task_id, TaskStatus.PROCESSING, 10, "开始处理音频文件")
+        
+        # 保存临时文件
+        temp_dir = "temp_uploads"
+        os.makedirs(temp_dir, exist_ok=True)
+        temp_filename = f"temp_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{filename}"
+        temp_filepath = os.path.join(temp_dir, temp_filename)
+        
+        with open(temp_filepath, "wb") as temp_file:
+            temp_file.write(file_content)
+
+        logging.info(f"用户 {current_user.username} 开始处理音频文件: {temp_filename}")
+        update_task_status(task_id, TaskStatus.PROCESSING, 20, "音频文件保存完成，开始转写")
+
+        # 1. 语音转文字
+        text = await transcribe_audio(temp_filepath)
+        
+        # 清理临时文件
+        try:
+            os.remove(temp_filepath)
+        except:
+            pass
+            
+        if not text:
+            update_task_status(task_id, TaskStatus.FAILED, 0, "无法识别音频内容")
+            return
+
+        update_task_status(task_id, TaskStatus.PROCESSING, 60, "转写完成，生成摘要")
+
+        # 2. 生成摘要
+        summary = get_summary(text)
+        
+        update_task_status(task_id, TaskStatus.PROCESSING, 80, "摘要生成完成，生成能力评估")
+        
+        # 3. 生成个人能力评估
+        capability_assessment = generate_capability_assessment(text, f"用户: {current_user.username}")
+
+        update_task_status(task_id, TaskStatus.PROCESSING, 90, "保存到飞书和本地")
+
+        # 4. 保存到飞书多维表格
+        feishu_save_success = save_voice_log(
+            content=summary,
+            user_id=current_user.user_id,
+            transcription=text,
+            summary=summary,
+            capability_assessment=capability_assessment
+        )
+
+        # 5. 保存本地日志
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        log_filename = f"log_{timestamp}.md"
+        log_filepath = os.path.join(LOG_DIR, log_filename)
+        with open(log_filepath, "w", encoding="utf-8") as f:
+            f.write(f"# {summary}\n\n")
+            f.write(f"**用户:** {current_user.username}\n\n")
+            f.write(f"**时间:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
+            f.write(f"## 完整转写内容\n\n")
+            f.write(f"{text}\n\n")
+            f.write(f"## AI智能摘要\n\n")
+            f.write(f"{summary}\n\n")
+            f.write(f"## 个人能力评估\n\n")
+            f.write(f"{capability_assessment}\n")
+
+        # 6. 更新全局索引
+        global index, documents
+        new_index, new_documents = load_and_index_logs()
+        index = new_index
+        documents = new_documents
+
+        # 任务完成
+        result = {
+            "transcription": text,
+            "summary": summary,
+            "capability_assessment": capability_assessment,
+            "filename": log_filename,
+            "saved_to_feishu": feishu_save_success
+        }
+        
+        update_task_status(task_id, TaskStatus.COMPLETED, 100, "处理完成", result)
+        logging.info(f"用户 {current_user.username} 语音日志处理完成: {log_filename}")
+
+    except Exception as e:
+        logging.error(f"用户 {current_user.username} 语音日志处理失败: {str(e)}")
+        update_task_status(task_id, TaskStatus.FAILED, 0, f"处理失败: {str(e)}")
+
 # 挂载静态文件目录
 app.mount("/static", StaticFiles(directory="../frontend"), name="static")
 app.mount("/frontend", StaticFiles(directory="../frontend"), name="frontend")
@@ -770,7 +918,9 @@ app.mount("/frontend", StaticFiles(directory="../frontend"), name="frontend")
 # 将根路径指向 index.html
 @app.get("/", include_in_schema=False)
 async def read_index():
-    return FileResponse('../frontend/index.html')
+    import os
+    frontend_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '../frontend/index.html'))
+    return FileResponse(frontend_path)
 
 @app.get("/login", include_in_schema=False)
 async def login_page():
